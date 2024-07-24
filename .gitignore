@@ -1,2 +1,4 @@
 **/__pycache__/
 /fastapi_env
+**/target/
+Cargo.lock

@@ -1,1 +1,0 @@
-# anoncreds-revocation-manger-py
