@@ -14,6 +14,12 @@ use std::os::raw::c_void;
 
 use super::{servers::Server, utils::*, witness::*};
 
+
+lazy_static! {
+    pub static ref SERVERS: ConcurrentHandleMap<Server> = ConcurrentHandleMap::new();
+}
+
+
 /// Used for receiving byte arrays
 #[repr(C)]
 pub struct ByteArray {
@@ -117,59 +123,40 @@ from_byte_array!(public_keys_from_bytes, G1Projective);
 from_byte_array!(num_epochs_from_bytes, usize);
 
 #[no_mangle]
-pub extern "C" fn allosaurus_new_server() -> *mut c_void {
-    let params = AccParams::default();
-    let server = Server::new(&params);
-    Box::into_raw(Box::new(server)) as *mut c_void
+pub extern "C" fn allosaurus_new_server(err: &mut ExternError) -> u64 {
+    SERVERS.insert_with_output(err, || Server::new(&AccParams::default()))
 }
 
 #[no_mangle]
-pub extern "C" fn allosaurus_server_add(server_ptr: *mut c_void, user_id: ByteArray, witness: &mut ByteBuffer) -> i32 {
-    if server_ptr.is_null() {
-        return -1;
-    }
-    let server = unsafe { &mut *(server_ptr as *mut Server) };
-    let user_id = user_id_from_bytes(user_id).unwrap();
+pub extern "C" fn allosaurus_server_add(handle: u64, user_id: ByteArray, witness: &mut ByteBuffer, err: &mut ExternError) -> i32 {
+    let user_id = match user_id_from_bytes(user_id) {
+        Some(id) => id,
+        None => return -1,
+    };
 
-    match server.add(user_id) {
-        Some(witness_data) => {
-            let serialized_witness = match bincode::serialize(&witness_data) {
-                Ok(data) => data,
-                Err(_) => return -2,
-            };
-
-            let witness_buffer = ByteBuffer::from_vec(serialized_witness);
-            *witness = witness_buffer;
-            0
-        },
-        None => -3,
-    }
+    SERVERS.call_with_result_mut(err, handle, move |server| {
+        let witness_data = server.add(user_id).ok_or(ExternError::new(ErrorCode::new(-2), "unable to add user_id".to_string()))?;
+        *witness = ByteBuffer::from_vec(bincode::serialize(&witness_data).unwrap());
+        Ok(())
+    });
+    err.get_code().code()
 }
 
 #[no_mangle]
 pub extern "C" fn allosaurus_server_delete(
-    server_ptr: *mut c_void, 
+    handle: u64,
     user_id: ByteArray, 
-    acc_buffer: &mut ByteBuffer
+    acc_buffer: &mut ByteBuffer,
+    err: &mut ExternError,
 ) -> i32 {
-    if server_ptr.is_null() {
-        return -1;
-    }
-    let server = unsafe { &mut *(server_ptr as *mut Server) }; 
     let user_id = user_id_from_bytes(user_id).unwrap();
+    SERVERS.call_with_result_mut(err, handle, move |server| {
+        let acc = server.delete(user_id).ok_or(ExternError::new(ErrorCode::new(-2), "unable to delete user_id".to_string()))?;
+        *acc_buffer = ByteBuffer::from_vec(bincode::serialize(&acc).unwrap());
+        Ok(())
+    });
 
-    match server.delete(user_id) {
-        Some(acc) => {
-            let serialized_acc = match bincode::serialize(&acc) {
-                Ok(data) => data,
-                Err(_) => return -2,
-            };
-
-            *acc_buffer = ByteBuffer::from_vec(serialized_acc);
-            0
-        },
-        None => -3,
-    }
+    err.get_code().code()
 }
 
 #[no_mangle]
