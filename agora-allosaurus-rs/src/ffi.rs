@@ -3,22 +3,19 @@ use crate::accumulator::{
     generate_fr, pair, schnorr, Accumulator, Element, MembershipWitness, Polynomial, PublicKey, SecretKey, SALT,
 };
 use crate::utils::{g1, sc, AccParams, PublicKeys, UserID};
-use ffi_support::{
-    define_bytebuffer_destructor, define_handle_map_deleter, define_string_destructor, ByteBuffer,
-    ConcurrentHandleMap, ErrorCode, ExternError,
-};
+use ffi_support::{ ByteBuffer, ConcurrentHandleMap, ErrorCode, ExternError, HandleError, Handle};
 use blsful::inner_types::*;
 use lazy_static::lazy_static;
 use std::{ptr, slice, string::String, vec::Vec};
 use std::os::raw::c_void;
+use std::str::from_utf8;
+use std::panic::{self, AssertUnwindSafe};
 
 use super::{servers::Server, utils::*, witness::*};
-
 
 lazy_static! {
     pub static ref SERVERS: ConcurrentHandleMap<Server> = ConcurrentHandleMap::new();
 }
-
 
 /// Used for receiving byte arrays
 #[repr(C)]
@@ -92,35 +89,28 @@ impl ByteArray {
     }
 }
 
-macro_rules! from_byte_array {
+// To convert from JSON to Rust types
+macro_rules! from_bytes {
     ($func_name:ident, $type:ty) => {
         fn $func_name(byte_array: ByteArray) -> Option<$type> {
-            use std::slice;
-            use serde::Deserialize;
-            use bincode;
+            // Convert the raw bytes to a &str, must bye utf-8
+            let json_str = match unsafe { from_utf8(std::slice::from_raw_parts(byte_array.data, byte_array.length)) } {
+                Ok(str) => str,
+                Err(_) => return None,
+            };
 
-            // Ensure that the pointer is not null and the length is positive
-            if byte_array.data.is_null() || byte_array.length == 0 {
-                None
-            } else {
-                // Convert ByteArray to slice of u8
-                let data_slice = unsafe {
-                    slice::from_raw_parts(byte_array.data, byte_array.length)
-                };
-
-                // Deserialize data to the specified type
-                bincode::deserialize::<$type>(data_slice).ok()
-            }
+            // Deserialize the JSON string to the specified type
+            serde_json::from_str::<$type>(json_str).ok()
         }
     };
 }
 
-from_byte_array!(acc_params_from_bytes, AccParams);
-from_byte_array!(user_id_from_bytes, UserID);
-from_byte_array!(challenge_from_bytes, Element);
-from_byte_array!(response_from_bytes, Element);
-from_byte_array!(public_keys_from_bytes, G1Projective);
-from_byte_array!(num_epochs_from_bytes, usize);
+from_bytes!(user_id_from_bytes, UserID);
+from_bytes!(acc_params_from_bytes, AccParams);
+from_bytes!(element_from_bytes, Element);
+from_bytes!(g1_from_bytes, G1Projective);
+from_bytes!(usize_from_bytes, usize);
+from_bytes!(scalar_list_from_bytes, Vec<Scalar>);
 
 #[no_mangle]
 pub extern "C" fn allosaurus_new_server(err: &mut ExternError) -> u64 {
@@ -129,171 +119,116 @@ pub extern "C" fn allosaurus_new_server(err: &mut ExternError) -> u64 {
 
 #[no_mangle]
 pub extern "C" fn allosaurus_server_add(handle: u64, user_id: ByteArray, witness: &mut ByteBuffer, err: &mut ExternError) -> i32 {
-    let user_id = match user_id_from_bytes(user_id) {
-        Some(id) => id,
-        None => return -1,
-    };
-
-    SERVERS.call_with_result_mut(err, handle, move |server| {
-        let witness_data = server.add(user_id).ok_or(ExternError::new(ErrorCode::new(-2), "unable to add user_id".to_string()))?;
-        *witness = ByteBuffer::from_vec(bincode::serialize(&witness_data).unwrap());
+    let user_id_result = user_id_from_bytes(user_id).unwrap();
+    SERVERS.call_with_result_mut(err, handle, |server| {
+        let witness_data = server.add(user_id_result).ok_or(ExternError::new_error(ErrorCode::new(-2), "unable to add user_id".to_string()))?;
+        let json_string = serde_json::to_string(&witness_data)?;
+        *witness = ByteBuffer::from_vec(json_string.into_bytes());
         Ok(())
     });
     err.get_code().code()
 }
 
-#[no_mangle]
-pub extern "C" fn allosaurus_server_delete(
-    handle: u64,
-    user_id: ByteArray, 
-    acc_buffer: &mut ByteBuffer,
-    err: &mut ExternError,
-) -> i32 {
-    let user_id = user_id_from_bytes(user_id).unwrap();
-    SERVERS.call_with_result_mut(err, handle, move |server| {
-        let acc = server.delete(user_id).ok_or(ExternError::new(ErrorCode::new(-2), "unable to delete user_id".to_string()))?;
-        *acc_buffer = ByteBuffer::from_vec(bincode::serialize(&acc).unwrap());
-        Ok(())
-    });
+// #[no_mangle]
+// pub extern "C" fn allosaurus_server_delete(
+//     handle: u64,
+//     user_id: ByteArray, 
+//     acc_buffer: &mut ByteBuffer,
+//     err: &mut ExternError,
+// ) -> i32 {
+//     let user_id_result = user_id_from_bytes(user_id).unwrap();
+//     SERVERS.call_with_result_mut(err, handle, move |server| {
+//         let acc = server.delete(user_id_result).ok_or(ExternError::new_error(ErrorCode::new(-2), "unable to delete user_id".to_string()))?;
+//         let json_string = serde_json::to_string(&acc)?;
+//         *acc_buffer = ByteBuffer::from_vec(json_string.into_bytes());
+//         Ok(())
+//     });
+//     err.get_code().code()
+// }
 
-    err.get_code().code()
-}
+// #[no_mangle]
+// pub extern "C" fn allosaurus_server_witness(
+//     handle: u64,
+//     params: ByteArray,
+//     user_id: ByteArray,
+//     challenge: ByteArray,
+//     response: ByteArray,
+//     user_pub_key: ByteArray,
+//     witness_buffer: &mut ByteBuffer,
+//     acc_buffer: &mut ByteBuffer,
+//     err: &mut ExternError,
+// ) -> i32 {
+//     let acc_param = acc_params_from_bytes(params).unwrap();
+//     let user_id = user_id_from_bytes(user_id).unwrap();
+//     let challenge = element_from_bytes(challenge).unwrap();
+//     let response = element_from_bytes(response).unwrap();
+//     let user_pub_key = g1_from_bytes(user_pub_key).unwrap();
 
-#[no_mangle]
-pub extern "C" fn allosaurus_server_witness(
-    server_ptr: *mut c_void, 
-    params: ByteArray,
-    user_id: ByteArray, 
-    challenge: ByteArray,
-    response: ByteArray,
-    user_pub_key: ByteArray,
-    witness_buffer: &mut ByteBuffer,
-    acc_buffer: &mut ByteBuffer
-) -> i32 {
-    if server_ptr.is_null() {
-        return -1;
-    }
-    let server = unsafe { &mut *(server_ptr as *mut Server) };
-    let acc_param = acc_params_from_bytes(params).unwrap();
-    let user_id = user_id_from_bytes(user_id).unwrap();
-    let challenge = challenge_from_bytes(challenge).unwrap();
-    let response = response_from_bytes(response).unwrap();
-    let user_pub_key = public_keys_from_bytes(user_pub_key).unwrap();
+//     SERVERS.call_with_result_mut(err, handle, move |server| {
+//         let (witness, acc) = server.witness(&acc_param, &user_id, &challenge, &response, &user_pub_key).ok_or(ExternError::new_error(ErrorCode::new(-2), "unable to witness".to_string()))?;
+//         let json_string_witness = serde_json::to_string(&witness)?;
+//         let json_string_acc = serde_json::to_string(&acc)?;
+//         *witness_buffer = ByteBuffer::from_vec(json_string_witness.into_bytes());
+//         *acc_buffer = ByteBuffer::from_vec(json_string_acc.into_bytes());
+//         Ok(())
+//     });
 
-    match server.witness(&acc_param, &user_id, &challenge, &response, &user_pub_key) {
-        Some((witness_data, acc_data)) => {
-            let serialized_witness = match bincode::serialize(&witness_data) {
-                Ok(data) => data,
-                Err(_) => return -2,
-            };
-            let serialized_acc = match bincode::serialize(&acc_data) {
-                Ok(data) => data,
-                Err(_) => return -3,
-            };
+//     err.get_code().code()
+// }
 
-            *witness_buffer = ByteBuffer::from_vec(serialized_witness);
-            *acc_buffer = ByteBuffer::from_vec(serialized_acc);
-            0
-        },
-        None => -4,
-    }
-}
+// #[no_mangle]
+// pub extern "C" fn allosaurus_server_update(
+//     handle: u64,
+//     num_epochs: ByteArray,
+//     y_shares: ByteArray,
+//     ds_buffer: &mut ByteBuffer,
+//     vs_buffer: &mut ByteBuffer,
+//     err: &mut ExternError,
+// ) -> i32 {
+//     let num_epochs = usize_from_bytes(num_epochs).unwrap();
+//     let y_shares_slice = scalar_list_from_bytes(y_shares).unwrap();
 
-#[no_mangle]
-pub extern "C" fn allosaurus_server_update(
-    server_ptr: *mut c_void,
-    num_epochs: ByteArray,
-    y_shares: *const Scalar,
-    y_shares_len: usize,
-    ds_buffer: &mut ByteBuffer,
-    vs_buffer: &mut ByteBuffer
-) -> i32 {
-    if server_ptr.is_null() {
-        return -1;
-    }
-    let server = unsafe { &mut *(server_ptr as *mut Server) };
-    let num_epochs = num_epochs_from_bytes(num_epochs).unwrap();
-    let y_shares_slice = unsafe { std::slice::from_raw_parts(y_shares, y_shares_len) };
+//     SERVERS.call_with_result_mut(err, handle, move |server| {
+//         let (ds, vs) = server.update(num_epochs, &y_shares_slice);
+//         let json_string_ds = serde_json::to_string(&ds)?;
+//         let json_string_vs = serde_json::to_string(&vs)?;
+//         *ds_buffer = ByteBuffer::from_vec(json_string_ds.into_bytes());
+//         *vs_buffer = ByteBuffer::from_vec(json_string_vs.into_bytes());
+//         Ok(())
+//     });
 
-    let (ds, vs) = server.update(num_epochs, y_shares_slice);
-    let serialized_ds = match bincode::serialize(&ds) {
-        Ok(data) => data,
-        Err(_) => return -2,
-    };
-    let serialized_vs = match bincode::serialize(&vs) {
-        Ok(data) => data,
-        Err(_) => return -3,
-    };
+//     err.get_code().code()
+// }
 
-    *ds_buffer = ByteBuffer::from_vec(serialized_ds);
-    *vs_buffer = ByteBuffer::from_vec(serialized_vs);
-
-    0 
-}
+// #[no_mangle]
+// pub extern "C" fn allosaurus_get_epoch(handle: u64, epoch: &mut ByteBuffer, err: &mut ExternError) -> i32 {
+//     SERVERS.call_with_result_mut(err, handle, |server| {
+//         let epoch_data = server.get_epoch();
+//         let json_string = serde_json::to_string(&epoch_data)?;
+//         *epoch = ByteBuffer::from_vec(json_string.into_bytes());
+//         Ok(())
+//     });
+//     err.get_code().code()
+// }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ffi::allosaurus_new_server;
-    use std::ptr;
 
     #[test]
-    fn test_allosaurus_new_server_with_default_params() {
-        unsafe {
-            let server_ptr = allosaurus_new_server();
-            assert!(!server_ptr.is_null(), "Server should not be null");
-        }
-    }
+    fn test_allosaurus_new_server() {
+        let mut err = ExternError::default();
+        let server_handle = allosaurus_new_server(&mut err);
 
-    #[test]
-    fn test_allosaurus_server_add() {
-        unsafe {
-            let server_ptr = allosaurus_new_server();
-            assert!(!server_ptr.is_null(), "Server pointer should not be null");
+        assert_eq!(err.get_code(), ErrorCode::SUCCESS);
 
-            let user_id = UserID::random();
-            let user_id_bytes = bincode::serialize(&user_id).unwrap();
-            let user_id_ba = ByteArray {
-                length: user_id_bytes.len(),
-                data: user_id_bytes.as_ptr(),
-            };
+        let handle = Handle::from_u64(server_handle).expect("Invalid handle");
+        let server_exists = SERVERS.get(handle, |_server| {
+            Ok::<bool, HandleError>(true)
+        }).unwrap_or(false);
+        assert!(server_exists, "Server should exist in the map after creation");
 
-            let witness_vec = vec![0u8; 1024]; 
-            let mut witness_buffer = ByteBuffer::from_vec(witness_vec);
-
-            let result = allosaurus_server_add(server_ptr, user_id_ba, &mut witness_buffer);
-            assert_eq!(result, 0, "Expected success result from server add");
-        }
-    }
-
-    #[test]
-    fn test_allosaurus_server_delete() {
-        unsafe {
-            let server_ptr = allosaurus_new_server();
-            assert!(!server_ptr.is_null(), "Server pointer should not be null");
-
-            let user_id = UserID::random();
-            let user_id_bytes = bincode::serialize(&user_id).unwrap();
-            let user_id_ba = ByteArray {
-                length: user_id_bytes.len(),
-                data: user_id_bytes.as_ptr(),
-            };
-            let user_id_ba_1 = ByteArray {
-                length: user_id_bytes.len(),
-                data: user_id_bytes.as_ptr(),
-            };
-
-            let witness_vec = vec![0u8; 1024];
-            let mut witness_buffer = ByteBuffer::from_vec(witness_vec); 
-            let acc_vec = vec![0u8; 1024];
-            let mut acc_buffer = ByteBuffer::from_vec(acc_vec);
-
-            let result = allosaurus_server_add(server_ptr, user_id_ba, &mut witness_buffer);
-            assert_eq!(result, 0, "Expected success result from server add");
-
-            let result = allosaurus_server_delete(server_ptr, user_id_ba_1, &mut acc_buffer);
-            assert_eq!(result, 0, "Expected success result from server delete");
-        }
+        SERVERS.remove(handle).expect("Failed to remove server");
     }
 
 }
