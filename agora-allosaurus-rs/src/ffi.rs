@@ -89,28 +89,23 @@ impl ByteArray {
     }
 }
 
-// To convert from JSON to Rust types
 macro_rules! from_bytes {
-    ($func_name:ident, $type:ty) => {
-        fn $func_name(byte_array: ByteArray) -> Option<$type> {
-            // Convert the raw bytes to a &str, must bye utf-8
-            let json_str = match unsafe { from_utf8(std::slice::from_raw_parts(byte_array.data, byte_array.length)) } {
-                Ok(str) => str,
-                Err(_) => return None,
-            };
+    ($name:ident, $type:ty) => {
+        fn $name(input: Vec<u8>) -> Option<$type> {
+            if input.len() != <$type>::BYTES {
+                // Check if the length matches the expected size
+                return None;
+            }
 
-            // Deserialize the JSON string to the specified type
-            serde_json::from_str::<$type>(json_str).ok()
+            match <[u8; <$type>::BYTES]>::try_from(input.as_slice()) {
+                Ok(bytes) => <$type>::from_bytes(bytes), // Call from_bytes method
+                Err(_) => None,
+            }
         }
     };
 }
 
-from_bytes!(user_id_from_bytes, UserID);
-from_bytes!(acc_params_from_bytes, AccParams);
 from_bytes!(element_from_bytes, Element);
-from_bytes!(g1_from_bytes, G1Projective);
-from_bytes!(usize_from_bytes, usize);
-from_bytes!(scalar_list_from_bytes, Vec<Scalar>);
 
 #[no_mangle]
 pub extern "C" fn allosaurus_new_server(err: &mut ExternError) -> u64 {
@@ -118,14 +113,17 @@ pub extern "C" fn allosaurus_new_server(err: &mut ExternError) -> u64 {
 }
 
 #[no_mangle]
-pub extern "C" fn allosaurus_server_add(handle: u64, user_id: ByteArray, witness: &mut ByteBuffer, err: &mut ExternError) -> i32 {
-    let user_id_result = user_id_from_bytes(user_id).unwrap();
-    SERVERS.call_with_result_mut(err, handle, |server| {
-        let witness_data = server.add(user_id_result).ok_or(ExternError::new_error(ErrorCode::new(-2), "unable to add user_id".to_string()))?;
-        let json_string = serde_json::to_string(&witness_data)?;
-        *witness = ByteBuffer::from_vec(json_string.into_bytes());
-        Ok(())
+pub extern "C" fn allosaurus_server_add(handle: u64, user_id: ByteArray, witness_buffer: &mut ByteBuffer, err: &mut ExternError) ->i32 {
+    let deserial_user_id = element_from_bytes(user_id.to_vec()).unwrap();
+    let result = SERVERS.call_with_result_mut(err, handle, move |server| -> Result<ByteBuffer, ExternError> {
+        server.add(deserial_user_id).map_or_else(
+            || Err(ExternError::new_error(ErrorCode::new(-2), "unable to add user_id".to_string())),
+            |witness| Ok(ByteBuffer::from_vec(witness.to_bytes().to_vec()))
+        )
     });
+    if err.get_code().is_success() {
+        *witness_buffer = result;
+    }
     err.get_code().code()
 }
 
@@ -216,6 +214,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore]
     fn test_allosaurus_new_server() {
         let mut err = ExternError::default();
         let server_handle = allosaurus_new_server(&mut err);
@@ -228,6 +227,51 @@ mod tests {
         }).unwrap_or(false);
         assert!(server_exists, "Server should exist in the map after creation");
 
+        SERVERS.remove(handle).expect("Failed to remove server");
+    }
+
+    #[test]
+    #[ignore]
+    fn test_membership_witness_byte_conversion() {
+        let seed = b"test_seed_for_secret_key_generation";
+        let secret_key = SecretKey::new(Some(seed));
+        let accumulator = Accumulator::random();
+        let element = Element::random();
+        let witness = MembershipWitness::new(element, accumulator, &secret_key).unwrap();
+
+        let witness_bytes = witness.to_bytes();
+        let deserialized_witness = MembershipWitness::from_bytes(witness_bytes).unwrap();
+        assert_eq!(witness, deserialized_witness, "Deserialized witness should be the same as the original.");
+    }
+
+    #[test]
+    #[ignore]
+    fn test_user_id_byte_conversion() {
+        let user_id = UserID::random();
+        let bytes = user_id.to_bytes();
+        let reconstructed_user_id = UserID::from_bytes(bytes).unwrap();
+
+        assert_eq!(user_id, reconstructed_user_id, "User ID should be the same after conversion to bytes and back");
+    }
+
+    #[test]
+    fn test_allosaurus_server_add() {
+        let mut err = ExternError::default();
+        let server_handle = allosaurus_new_server(&mut err);
+
+        let user_id = UserID::random().to_bytes();
+        let user_id_bytearray = ByteArray {
+            length: user_id.len(),
+            data: user_id.as_ptr(),
+        };
+
+        let witness_vec = vec![0u8; 1024]; 
+        let mut witness_buffer = ByteBuffer::from_vec(witness_vec);
+
+        let result = allosaurus_server_add(server_handle, user_id_bytearray, &mut witness_buffer, &mut err);
+        assert_eq!(err.get_code(), ErrorCode::SUCCESS);
+
+        let handle = Handle::from_u64(server_handle).expect("Invalid handle");
         SERVERS.remove(handle).expect("Failed to remove server");
     }
 

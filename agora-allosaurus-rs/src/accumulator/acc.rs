@@ -4,6 +4,7 @@ use super::{
     SecretKey,
 };
 use blsful::inner_types::*;
+use elliptic_curve::subtle::CtOption;
 use core::fmt::{self, Display, Formatter};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
@@ -36,7 +37,8 @@ impl TryFrom<&[u8; 32]> for Element {
 }
 
 impl Element {
-    const BYTES: usize = 32;
+    /// The number of bytes in an element.
+    pub const BYTES: usize = 32;
 
     /// Return the multiplicative identity element
     pub fn one() -> Self {
@@ -46,6 +48,12 @@ impl Element {
     /// Return the byte representation
     pub fn to_bytes(&self) -> [u8; Self::BYTES] {
         self.0.to_be_bytes()
+    }
+
+    /// Construct an element from bytes
+    pub fn from_bytes(bytes: [u8; Self::BYTES]) -> Option<Self> {
+        let scalar_option = Scalar::from_be_bytes(&bytes);
+        scalar_option.map(Self).into()
     }
 
     /// Construct an element by hashing the specified bytes

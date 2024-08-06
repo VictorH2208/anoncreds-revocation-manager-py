@@ -199,6 +199,15 @@ impl MembershipWitness {
         res.copy_from_slice(self.0.to_bytes().as_ref());
         res
     }
+
+    /// Create a witness from a byte sequence
+    pub fn from_bytes(bytes: [u8; Self::BYTES]) -> Result<Self, &'static str> {
+        let projective_option = G1Projective::from_compressed(&bytes);
+        match projective_option.into() {
+            Some(projective) => Ok(Self(projective)),
+            None => Err("Failed to decompress G1Projective")
+        }
+    }
 }
 
 /// A non-membership witness that can be used for non-membership proof generation
