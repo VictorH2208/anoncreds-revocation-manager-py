@@ -33,6 +33,7 @@ lazy_static = { version = "1.4", optional = true }
 blstrs_plus = { version = "^0.8.4", features = ["portable"], optional = true }
 digest = { version = "0.10", default-features = false }
 bincode = "1.3"
+arrayref = "0.3.6"
 
 [dev-dependencies]
 criterion = "0.5"

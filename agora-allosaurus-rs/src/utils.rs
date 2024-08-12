@@ -2,6 +2,7 @@ use crate::accumulator::{Element, PublicKey};
 use blsful::{inner_types::*, vsss_rs::Polynomial as VSSSPolynomial};
 use merlin::Transcript;
 use serde::{Deserialize, Serialize};
+use arrayref::array_ref;
 
 /// The security parameter for the system
 pub(crate) const SECURITY_BYTES: usize = 128 / 8;
@@ -61,6 +62,9 @@ impl Default for AccParams {
 }
 
 impl AccParams {
+    /// The number of bytes in the accumulator parameters
+    pub const BYTES: usize = 6 * G1Projective::COMPRESSED_BYTES + 3 * G2Projective::COMPRESSED_BYTES;
+
     // read-only
     /// Get the p1 Generator
     pub fn get_p1(&self) -> G1Projective {
@@ -101,6 +105,70 @@ impl AccParams {
         transcript.append_message(b"Proof Param X", self.x1.to_bytes().as_ref());
         transcript.append_message(b"Proof Param Y", self.y1.to_bytes().as_ref());
         transcript.append_message(b"Proof Param Z", self.z1.to_bytes().as_ref());
+    }
+
+    /// Convert to bytes
+    pub fn to_bytes(&self) -> [u8; Self::BYTES] {
+        let mut bytes = [0u8; Self::BYTES]; 
+        let mut offset = 0;
+
+        bytes[offset..offset + G1Projective::COMPRESSED_BYTES].copy_from_slice(&self.p1.to_compressed());
+        offset += G1Projective::COMPRESSED_BYTES;
+
+        bytes[offset..offset + G2Projective::COMPRESSED_BYTES].copy_from_slice(&self.p2.to_compressed());
+        offset += G2Projective::COMPRESSED_BYTES;
+
+        bytes[offset..offset + G1Projective::COMPRESSED_BYTES].copy_from_slice(&self.k0.to_compressed());
+        offset += G1Projective::COMPRESSED_BYTES;
+
+        bytes[offset..offset + G1Projective::COMPRESSED_BYTES].copy_from_slice(&self.k1.to_compressed());
+        offset += G1Projective::COMPRESSED_BYTES;
+
+        bytes[offset..offset + G2Projective::COMPRESSED_BYTES].copy_from_slice(&self.k2.to_compressed());
+        offset += G2Projective::COMPRESSED_BYTES;
+
+        bytes[offset..offset + G1Projective::COMPRESSED_BYTES].copy_from_slice(&self.x1.to_compressed());
+        offset += G1Projective::COMPRESSED_BYTES;
+
+        bytes[offset..offset + G1Projective::COMPRESSED_BYTES].copy_from_slice(&self.y1.to_compressed());
+        offset += G1Projective::COMPRESSED_BYTES;
+
+        bytes[offset..offset + G1Projective::COMPRESSED_BYTES].copy_from_slice(&self.z1.to_compressed());
+        offset += G1Projective::COMPRESSED_BYTES;
+
+        bytes
+    }
+
+    /// Convert from bytes
+    pub fn from_bytes(bytes: [u8; Self::BYTES]) -> Option<Self> {
+
+        const G1_SIZE: usize = G1Projective::COMPRESSED_BYTES;
+        const G2_SIZE: usize = G2Projective::COMPRESSED_BYTES;
+
+        let p1 = G1Projective::from_compressed(array_ref![bytes, 0, G1_SIZE]);
+        let p2 = G2Projective::from_compressed(array_ref![bytes, G1_SIZE, G2_SIZE]);
+        let k0 = G1Projective::from_compressed(array_ref![bytes, G1_SIZE + G2_SIZE, G1_SIZE]);
+        let k1 = G1Projective::from_compressed(array_ref![bytes, 2*G1_SIZE + G2_SIZE, G1_SIZE]);
+        let k2 = G2Projective::from_compressed(array_ref![bytes, 3*G1_SIZE + G2_SIZE, G2_SIZE]);
+        let x1 = G1Projective::from_compressed(array_ref![bytes, 3*G1_SIZE + 2*G2_SIZE, G1_SIZE]);
+        let y1 = G1Projective::from_compressed(array_ref![bytes, 4*G1_SIZE + 2*G2_SIZE, G1_SIZE]);
+        let z1 = G1Projective::from_compressed(array_ref![bytes, 5*G1_SIZE + 2*G2_SIZE, G1_SIZE]);
+
+        if p1.is_some().into() && p2.is_some().into() && k0.is_some().into() && k1.is_some().into() && k2.is_some().into() &&
+        x1.is_some().into() && y1.is_some().into() && z1.is_some().into() {
+            Some(AccParams {
+                p1: p1.unwrap().into(),
+                p2: p2.unwrap().into(),
+                k0: k0.unwrap().into(),
+                k1: k1.unwrap().into(),
+                k2: k2.unwrap().into(),
+                x1: x1.unwrap().into(),
+                y1: y1.unwrap().into(),
+                z1: z1.unwrap().into(),
+            })
+        } else {
+            None
+        }
     }
 }
 

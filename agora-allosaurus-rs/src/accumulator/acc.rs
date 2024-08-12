@@ -4,7 +4,6 @@ use super::{
     SecretKey,
 };
 use blsful::inner_types::*;
-use elliptic_curve::subtle::CtOption;
 use core::fmt::{self, Display, Formatter};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};

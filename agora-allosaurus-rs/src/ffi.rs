@@ -1,15 +1,10 @@
 #![allow(unused_doc_comments, missing_docs)]
-use crate::accumulator::{
-    generate_fr, pair, schnorr, Accumulator, Element, MembershipWitness, Polynomial, PublicKey, SecretKey, SALT,
-};
+use crate::accumulator::{Accumulator, Element, MembershipWitness, Polynomial, PublicKey, SecretKey,};
 use crate::utils::{g1, sc, AccParams, PublicKeys, UserID};
 use ffi_support::{ ByteBuffer, ConcurrentHandleMap, ErrorCode, ExternError, HandleError, Handle};
 use blsful::inner_types::*;
 use lazy_static::lazy_static;
-use std::{ptr, slice, string::String, vec::Vec};
-use std::os::raw::c_void;
-use std::str::from_utf8;
-use std::panic::{self, AssertUnwindSafe};
+use std::{ptr, slice, vec::Vec};
 
 use super::{servers::Server, utils::*, witness::*};
 
@@ -89,16 +84,42 @@ impl ByteArray {
     }
 }
 
+fn serialize_scalars(scalars: &Vec<Scalar>) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    for scalar in scalars {
+        bytes.extend_from_slice(&scalar.to_be_bytes());
+    }
+    bytes
+}
+
+fn deserialize_scalars(bytes: &[u8]) -> Option<Vec<Scalar>> {
+    if bytes.len() % 32 != 0 {
+        return None;
+    }
+
+    let mut scalars = Vec::new();
+    for chunk in bytes.chunks_exact(32) {
+        let array = <[u8; 32]>::try_from(chunk).expect("Chunk size is incorrect");
+        let scalar_option = Scalar::from_be_bytes(&array);
+
+        if scalar_option.is_some().unwrap_u8() == 1 {
+            scalars.push(scalar_option.unwrap());
+        } else {
+            return None;
+        }
+    }
+    Some(scalars)
+}
+
 macro_rules! from_bytes {
     ($name:ident, $type:ty) => {
         fn $name(input: Vec<u8>) -> Option<$type> {
             if input.len() != <$type>::BYTES {
-                // Check if the length matches the expected size
                 return None;
             }
 
             match <[u8; <$type>::BYTES]>::try_from(input.as_slice()) {
-                Ok(bytes) => <$type>::from_bytes(bytes), // Call from_bytes method
+                Ok(bytes) => <$type>::from_bytes(bytes),
                 Err(_) => None,
             }
         }
@@ -106,6 +127,7 @@ macro_rules! from_bytes {
 }
 
 from_bytes!(element_from_bytes, Element);
+from_bytes!(acc_params_from_bytes, AccParams);
 
 #[no_mangle]
 pub extern "C" fn allosaurus_new_server(err: &mut ExternError) -> u64 {
@@ -127,85 +149,123 @@ pub extern "C" fn allosaurus_server_add(handle: u64, user_id: ByteArray, witness
     err.get_code().code()
 }
 
-// #[no_mangle]
-// pub extern "C" fn allosaurus_server_delete(
-//     handle: u64,
-//     user_id: ByteArray, 
-//     acc_buffer: &mut ByteBuffer,
-//     err: &mut ExternError,
-// ) -> i32 {
-//     let user_id_result = user_id_from_bytes(user_id).unwrap();
-//     SERVERS.call_with_result_mut(err, handle, move |server| {
-//         let acc = server.delete(user_id_result).ok_or(ExternError::new_error(ErrorCode::new(-2), "unable to delete user_id".to_string()))?;
-//         let json_string = serde_json::to_string(&acc)?;
-//         *acc_buffer = ByteBuffer::from_vec(json_string.into_bytes());
-//         Ok(())
-//     });
-//     err.get_code().code()
-// }
+#[no_mangle]
+pub extern "C" fn allosaurus_server_delete(
+    handle: u64,
+    user_id: ByteArray, 
+    acc_buffer: &mut ByteBuffer,
+    err: &mut ExternError,
+) -> i32 {
+    let deserial_user_id = element_from_bytes(user_id.to_vec()).unwrap();
+    let result = SERVERS.call_with_result_mut(err, handle, move |server| {
+        server.delete(deserial_user_id).map_or_else(
+            || Err(ExternError::new_error(ErrorCode::new(-2), "unable to delete user_id".to_string())),
+            |acc| Ok(ByteBuffer::from_vec(acc.to_bytes().to_vec()))
+        )
+    });
+    if err.get_code().is_success() {
+        *acc_buffer = result;
+    }
+    err.get_code().code()
+}
+
+#[no_mangle]
+pub extern "C" fn allosaurus_server_witness(
+    handle: u64,
+    params: ByteArray,
+    user_id: ByteArray,
+    challenge: ByteArray,
+    response: ByteArray,
+    user_pub_key: ByteArray,
+    result_buffer: &mut ByteBuffer,
+    err: &mut ExternError,
+) -> i32 {
+    let acc_param = acc_params_from_bytes(params.to_vec()).unwrap();
+    let user_id = element_from_bytes(user_id.to_vec()).unwrap();
+    let challenge = element_from_bytes(challenge.to_vec()).unwrap();
+    let response = element_from_bytes(response.to_vec()).unwrap();
+
+    let user_pub_key_vec = user_pub_key.to_vec();
+    let user_pub_key_array: &[u8; 96] = user_pub_key_vec.as_slice().try_into().expect("Slice with incorrect length");
+    let user_pub_key = G1Projective::from_uncompressed(user_pub_key_array).unwrap();
+
+    let result = SERVERS.call_with_result_mut(err, handle, move |server| {
+        server.witness(&acc_param, &user_id, &challenge, &response, &user_pub_key).map_or_else(
+            || Err(ExternError::new_error(ErrorCode::new(-2), "unable to witness".to_string())),
+            |(witness, g1_proj)| {
+                let mut witness_bytes = witness.to_bytes().to_vec();
+                let g1_proj_bytes = g1_proj.to_uncompressed().to_vec();
+                
+                let mut buffer = Vec::new(); // ffi cannot take two buffers so combine the output into one
+                buffer.extend_from_slice(&witness_bytes.len().to_ne_bytes());
+                buffer.extend_from_slice(&g1_proj_bytes.len().to_ne_bytes());
+                buffer.extend(witness_bytes);
+                buffer.extend(g1_proj_bytes);
+        
+                Ok(ByteBuffer::from_vec(buffer))
+            }
+        )
+    });
+    if err.get_code().is_success() {
+        *result_buffer = result;
+    }
+    err.get_code().code()
+}
+
+#[no_mangle]
+pub extern "C" fn allosaurus_server_update(
+    handle: u64,
+    num_epochs: ByteArray,
+    y_shares: ByteArray,
+    buffer: &mut ByteBuffer,
+    err: &mut ExternError,
+) -> i32 {
+    let num_epochs = usize::from_be_bytes(num_epochs.to_vec().as_slice().try_into().expect("Slice with incorrect length"));
+    let y_shares = deserialize_scalars(y_shares.to_vec().as_slice()).unwrap();
+
+    let result =  SERVERS.call_with_result_mut(err, handle, move |server| {
+        let (ds, vs) = server.update(num_epochs, &y_shares);
+        
+        let mut ds_bytes = Vec::new();
+        let mut vs_bytes = Vec::new();
+        for d in ds {
+            ds_bytes.extend_from_slice(&d.to_be_bytes());
+        }
+        for v in vs {
+            vs_bytes.extend_from_slice(&v.to_uncompressed());
+        }
+
+        let mut buffer = Vec::new(); // ffi cannot take two buffers so combine the output into one
+        buffer.extend_from_slice(&ds_bytes.len().to_ne_bytes());
+        buffer.extend_from_slice(&vs_bytes.len().to_ne_bytes());
+        buffer.extend(&ds_bytes);
+        buffer.extend(&vs_bytes);
+        
+        Ok(ByteBuffer::from_vec(buffer))
+    });
+    match result {
+        Ok(result_buffer) => {
+            *buffer = result_buffer;
+            0
+        },
+        Err(e) => {
+            *err = ExternError::new_error(ErrorCode::new(-2), format!("Unable to update: {}", e));
+            -2 
+        }
+    }
+}
+
 
 // #[no_mangle]
-// pub extern "C" fn allosaurus_server_witness(
-//     handle: u64,
-//     params: ByteArray,
-//     user_id: ByteArray,
-//     challenge: ByteArray,
-//     response: ByteArray,
-//     user_pub_key: ByteArray,
-//     witness_buffer: &mut ByteBuffer,
-//     acc_buffer: &mut ByteBuffer,
-//     err: &mut ExternError,
-// ) -> i32 {
-//     let acc_param = acc_params_from_bytes(params).unwrap();
-//     let user_id = user_id_from_bytes(user_id).unwrap();
-//     let challenge = element_from_bytes(challenge).unwrap();
-//     let response = element_from_bytes(response).unwrap();
-//     let user_pub_key = g1_from_bytes(user_pub_key).unwrap();
-
-//     SERVERS.call_with_result_mut(err, handle, move |server| {
-//         let (witness, acc) = server.witness(&acc_param, &user_id, &challenge, &response, &user_pub_key).ok_or(ExternError::new_error(ErrorCode::new(-2), "unable to witness".to_string()))?;
-//         let json_string_witness = serde_json::to_string(&witness)?;
-//         let json_string_acc = serde_json::to_string(&acc)?;
-//         *witness_buffer = ByteBuffer::from_vec(json_string_witness.into_bytes());
-//         *acc_buffer = ByteBuffer::from_vec(json_string_acc.into_bytes());
-//         Ok(())
+// pub extern "C" fn allosaurus_get_epoch(handle: u64, epoch_buffer: &mut ByteBuffer) -> i32 {
+//     let result = SERVERS.call_with_result_mut(err, handle, |server| {
+//         let epoch = server.get_epoch();
+//         let epoch_bytes = epoch.to_be_bytes().to_vec();
+//         Ok(ByteBuffer::from_vec(epoch_bytes)) 
 //     });
-
-//     err.get_code().code()
-// }
-
-// #[no_mangle]
-// pub extern "C" fn allosaurus_server_update(
-//     handle: u64,
-//     num_epochs: ByteArray,
-//     y_shares: ByteArray,
-//     ds_buffer: &mut ByteBuffer,
-//     vs_buffer: &mut ByteBuffer,
-//     err: &mut ExternError,
-// ) -> i32 {
-//     let num_epochs = usize_from_bytes(num_epochs).unwrap();
-//     let y_shares_slice = scalar_list_from_bytes(y_shares).unwrap();
-
-//     SERVERS.call_with_result_mut(err, handle, move |server| {
-//         let (ds, vs) = server.update(num_epochs, &y_shares_slice);
-//         let json_string_ds = serde_json::to_string(&ds)?;
-//         let json_string_vs = serde_json::to_string(&vs)?;
-//         *ds_buffer = ByteBuffer::from_vec(json_string_ds.into_bytes());
-//         *vs_buffer = ByteBuffer::from_vec(json_string_vs.into_bytes());
-//         Ok(())
-//     });
-
-//     err.get_code().code()
-// }
-
-// #[no_mangle]
-// pub extern "C" fn allosaurus_get_epoch(handle: u64, epoch: &mut ByteBuffer, err: &mut ExternError) -> i32 {
-//     SERVERS.call_with_result_mut(err, handle, |server| {
-//         let epoch_data = server.get_epoch();
-//         let json_string = serde_json::to_string(&epoch_data)?;
-//         *epoch = ByteBuffer::from_vec(json_string.into_bytes());
-//         Ok(())
-//     });
+//     if err.get_code().is_success() {
+//         *epoch_buffer = result;
+//     }
 //     err.get_code().code()
 // }
 
@@ -255,7 +315,37 @@ mod tests {
     }
 
     #[test]
-    fn test_allosaurus_server_add() {
+    #[ignore]
+    fn test_acc_param_byte_conversion() {
+        let params = AccParams {
+            p1: G1Projective::generator(),
+            p2: G2Projective::generator(),
+            k0: G1Projective::generator(),
+            k1: G1Projective::generator(),
+            k2: G2Projective::generator(),
+            x1: G1Projective::generator(),
+            y1: G1Projective::generator(),
+            z1: G1Projective::generator(),
+        };
+        
+        let bytes = params.to_bytes();
+        let result = AccParams::from_bytes(bytes).unwrap();
+        
+        assert_eq!(params, result);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_g1_projective_compression() {
+        let point = G1Projective::generator();
+        let compressed = point.to_uncompressed();
+        let decompressed_option = G1Projective::from_uncompressed(&compressed).unwrap();
+        assert_eq!(point, decompressed_option, "Decompressed point does not match the original");
+    }
+
+    #[test]
+    #[ignore]
+    fn test_allosaurus_server_add_delete() {
         let mut err = ExternError::default();
         let server_handle = allosaurus_new_server(&mut err);
 
@@ -264,12 +354,23 @@ mod tests {
             length: user_id.len(),
             data: user_id.as_ptr(),
         };
+        let user_id_bytearray_2 = ByteArray {
+            length: user_id.len(),
+            data: user_id.as_ptr(),
+        };
 
         let witness_vec = vec![0u8; 1024]; 
         let mut witness_buffer = ByteBuffer::from_vec(witness_vec);
 
+        let acc_vec = vec![0u8; 1024];
+        let mut acc_buffer = ByteBuffer::from_vec(acc_vec);
+
         let result = allosaurus_server_add(server_handle, user_id_bytearray, &mut witness_buffer, &mut err);
         assert_eq!(err.get_code(), ErrorCode::SUCCESS);
+
+        let result_delete = allosaurus_server_delete(server_handle, user_id_bytearray_2, &mut acc_buffer, &mut err);
+        assert_eq!(err.get_code(), ErrorCode::SUCCESS);
+
 
         let handle = Handle::from_u64(server_handle).expect("Invalid handle");
         SERVERS.remove(handle).expect("Failed to remove server");
