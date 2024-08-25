@@ -1,6 +1,7 @@
 #![allow(unused_doc_comments, missing_docs)]
 use crate::accumulator::{Accumulator, Element, MembershipWitness, Polynomial, PublicKey, SecretKey,};
 use crate::utils::{g1, sc, AccParams, PublicKeys, UserID};
+use crate::custom_bytebuffer::{DualByteBuffer, ByteBufferHandler};
 use ffi_support::{ ByteBuffer, ConcurrentHandleMap, ErrorCode, ExternError, HandleError, Handle};
 use blsful::inner_types::*;
 use lazy_static::lazy_static;
@@ -177,7 +178,8 @@ pub extern "C" fn allosaurus_server_witness(
     challenge: ByteArray,
     response: ByteArray,
     user_pub_key: ByteArray,
-    result_buffer: &mut ByteBuffer,
+    witeness_buffer: &mut Byte,
+    g1_proj_buffer: &mut ByteBuffer,
     err: &mut ExternError,
 ) -> i32 {
     let acc_param = acc_params_from_bytes(params.to_vec()).unwrap();
@@ -190,21 +192,22 @@ pub extern "C" fn allosaurus_server_witness(
     let user_pub_key = G1Projective::from_uncompressed(user_pub_key_array).unwrap();
 
     let result = SERVERS.call_with_result_mut(err, handle, move |server| {
-        server.witness(&acc_param, &user_id, &challenge, &response, &user_pub_key).map_or_else(
-            || Err(ExternError::new_error(ErrorCode::new(-2), "unable to witness".to_string())),
-            |(witness, g1_proj)| {
-                let mut witness_bytes = witness.to_bytes().to_vec();
-                let g1_proj_bytes = g1_proj.to_uncompressed().to_vec();
-                
-                let mut buffer = Vec::new(); // ffi cannot take two buffers so combine the output into one
-                buffer.extend_from_slice(&witness_bytes.len().to_ne_bytes());
-                buffer.extend_from_slice(&g1_proj_bytes.len().to_ne_bytes());
-                buffer.extend(witness_bytes);
-                buffer.extend(g1_proj_bytes);
-        
-                Ok(ByteBuffer::from_vec(buffer))
-            }
-        )
+        let (witness, g1_proj) = server.witness(&acc_param, &user_id, &challenge, &response, &user_pub_key).unwrap();
+        let mut witness_bytes = witness.to_bytes().to_vec();
+        let g1_proj_bytes = g1_proj.to_uncompressed().to_vec();
+
+        result_buffer.set_buffer1(witness_bytes);
+        result_buffer.set_buffer2(g1_proj_bytes);
+        Ok(result_buffer)
+        // server.witness(&acc_param, &user_id, &challenge, &response, &user_pub_key).map_or_else(
+        //     || Err(ExternError::new_error(ErrorCode::new(-2), "unable to witness".to_string())),
+        //     |(witness, g1_proj)| {
+        //         let mut witness_bytes = witness.to_bytes().to_vec();
+        //         let g1_proj_bytes = g1_proj.to_uncompressed().to_vec();
+        //         result_buffer.set_buffer1(witness_bytes);
+        //         result_buffer.set_buffer2(g1_proj_bytes);
+        //     }
+        // )
     });
     if err.get_code().is_success() {
         *result_buffer = result;
@@ -223,9 +226,8 @@ pub extern "C" fn allosaurus_server_update(
     let num_epochs = usize::from_be_bytes(num_epochs.to_vec().as_slice().try_into().expect("Slice with incorrect length"));
     let y_shares = deserialize_scalars(y_shares.to_vec().as_slice()).unwrap();
 
-    let result =  SERVERS.call_with_result_mut(err, handle, move |server| {
+    let result =  SERVERS.call_with_output_mut(err, handle, move |server| {
         let (ds, vs) = server.update(num_epochs, &y_shares);
-        
         let mut ds_bytes = Vec::new();
         let mut vs_bytes = Vec::new();
         for d in ds {
@@ -240,34 +242,28 @@ pub extern "C" fn allosaurus_server_update(
         buffer.extend_from_slice(&vs_bytes.len().to_ne_bytes());
         buffer.extend(&ds_bytes);
         buffer.extend(&vs_bytes);
-        
-        Ok(ByteBuffer::from_vec(buffer))
+        ByteBuffer::from_vec(buffer)
     });
-    match result {
-        Ok(result_buffer) => {
-            *buffer = result_buffer;
-            0
-        },
-        Err(e) => {
-            *err = ExternError::new_error(ErrorCode::new(-2), format!("Unable to update: {}", e));
-            -2 
-        }
+    *buffer = result;
+    if err.get_code().is_success() {
+        0  // Success
+    } else {
+        err.get_code().code()
     }
 }
 
-
-// #[no_mangle]
-// pub extern "C" fn allosaurus_get_epoch(handle: u64, epoch_buffer: &mut ByteBuffer) -> i32 {
-//     let result = SERVERS.call_with_result_mut(err, handle, |server| {
-//         let epoch = server.get_epoch();
-//         let epoch_bytes = epoch.to_be_bytes().to_vec();
-//         Ok(ByteBuffer::from_vec(epoch_bytes)) 
-//     });
-//     if err.get_code().is_success() {
-//         *epoch_buffer = result;
-//     }
-//     err.get_code().code()
-// }
+#[no_mangle]
+pub extern "C" fn allosaurus_get_epoch(handle: u64, epoch_buffer: &mut ByteBuffer, err: &mut ExternError) -> i32 {
+    let result = SERVERS.call_with_output_mut(err, handle, |server| {
+        let epoch = server.get_epoch();
+        let epoch_bytes = epoch.to_be_bytes().to_vec();
+        ByteBuffer::from_vec(epoch_bytes) 
+    });
+    if err.get_code().is_success() {
+        *epoch_buffer = result;
+    }
+    err.get_code().code()
+}
 
 #[cfg(test)]
 mod tests {
