@@ -3,7 +3,10 @@ use crate::accumulator::{Accumulator, Element, MembershipWitness, Polynomial, Pu
 use crate::utils::{g1, sc, AccParams, PublicKeys, UserID};
 use crate::custom_bytebuffer::{DualByteBuffer, ByteBufferHandler};
 use crate::User;
-use ffi_support::{ ByteBuffer, ConcurrentHandleMap, ErrorCode, ExternError, HandleError, Handle};
+use ffi_support::{
+    define_bytebuffer_destructor, define_handle_map_deleter, define_string_destructor, ByteBuffer,
+    ConcurrentHandleMap, ErrorCode, ExternError,HandleError, Handle
+};
 use blsful::inner_types::*;
 use lazy_static::lazy_static;
 use std::{ptr, slice, vec::Vec, panic::AssertUnwindSafe};
@@ -13,6 +16,13 @@ use super::{servers::Server, utils::*, witness::*};
 lazy_static! {
     pub static ref SERVERS: ConcurrentHandleMap<Server> = ConcurrentHandleMap::new();
 }
+
+/// Cleanup created strings
+define_string_destructor!(allosaurus_string_free);
+/// Cleanup created byte buffers
+define_bytebuffer_destructor!(allosaurus_byte_buffer_free);
+/// Cleanup created proof contexts
+define_handle_map_deleter!(CREATE_PROOF_CONTEXT, allosaurus_create_proof_free);
 
 /// Used for receiving byte arrays
 #[repr(C)]
@@ -399,6 +409,50 @@ pub extern "C" fn allosaurus_user_create_witness(
         Ok::<(), HandleError>(())
     }).unwrap();
     0
+}
+
+#[no_mangle]
+pub extern "C" fn allosaurus_make_membership_proof(
+    user: ByteArray,
+    params: ByteArray,
+    public_keys: ByteArray,
+    challenge: ByteArray,
+    result_buffer: &mut ByteBuffer,
+) -> i32 {
+    let user = User::from_bytes(&user.to_vec()).unwrap();
+    let params = acc_params_from_bytes(params.to_vec()).unwrap();
+    let public_keys = PublicKeys::from_bytes(public_keys.to_vec()).unwrap();
+    let challenge = challenge.to_fixed_array().unwrap();
+
+    let result = User::make_membership_proof(&user, &params, &public_keys, &challenge).unwrap();
+    let result_bytes = result.to_bytes();
+    *result_buffer = ByteBuffer::from_vec(result_bytes.to_vec());
+    0
+}
+
+#[no_mangle]
+pub extern "C" fn allosaurus_user_check_witness(
+    user: ByteArray,
+    params: ByteArray,
+    accumulator: ByteArray,
+    result_buffer: &mut ByteBuffer,
+) -> i32 {
+    let user = User::from_bytes(&user.to_vec()).unwrap();
+    let params = acc_params_from_bytes(params.to_vec()).unwrap();
+    let acc_vec = accumulator.to_vec();
+    let acc_array: &[u8; 96] = acc_vec.as_slice().try_into().expect("Slice with incorrect length");
+    let acc: Accumulator = G1Projective::from_uncompressed(acc_array).unwrap().into();
+
+    match User::check_witness(&user, &params, &acc) {
+        Ok(()) => {
+            *result_buffer = ByteBuffer::from_vec(b"Witness valid".to_vec());
+            0
+        },
+        Err(_) => {
+            *result_buffer = ByteBuffer::from_vec(b"Witness invalid".to_vec());
+            -1
+        }
+    }
 }
 
 
