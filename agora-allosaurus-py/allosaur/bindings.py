@@ -152,6 +152,135 @@ def new_server() -> c_int64:
     return handle
 
 def server_add(handle: c_int64, user_id: bytes) -> None:
+    user_id = _encode_bytes(user_id)
     err = FfiError()
     buffer = FfiByteBuffer()
+    lib_fn = _get_func("allosaurus_server_add")
+    lib_fn(handle, user_id, byref(buffer), byref(err))
+    if err.code != 0:
+        message = string_at(err.message)
+        raise Exception(message)
+    result = _decode_bytes(buffer)
+    return result
+
+def server_delete(handle: c_int64, user_id: bytes) -> None:
+    user_id = _encode_bytes(user_id)
+    err = FfiError()
+    buffer = FfiByteBuffer()
+    lib_fn = _get_func("allosaurus_server_delete")
+    lib_fn(handle, user_id, byref(buffer), byref(err))
+    if err.code != 0:
+        message = string_at(err.message)
+        raise Exception(message)
+    result = _decode_bytes(buffer)
+    return result
+
+def server_witness(
+        handle: c_int64, 
+        params: bytes,
+        user_id: bytes,
+        challenge: bytes,
+        response: bytes,
+        user_public_key: bytes) -> None:
+    params = _encode_bytes(params)
+    user_id = _encode_bytes(user_id)
+    challenge = _encode_bytes(challenge)
+    response = _encode_bytes(response)
+    user_public_key = _encode_bytes(user_public_key)
+    err = FfiError()
+    buffer = FfiByteBuffer()
+    lib_fn = _get_func("allosaurus_server_witness")
+    lib_fn(handle, params, user_id, challenge, response, user_public_key, byref(buffer), byref(err))
+    if err.code != 0:
+        message = string_at(err.message)
+        raise Exception(message)
+    result = _decode_bytes(buffer)
+    return result
+
+# TODO: Implement this function
+# can num_epochs be int? what should y_shares be if it is list?
+# how to handle dual buffer?
+def server_update(
+        handle: c_int64, 
+        num_epochs: bytes,
+        y_shares: bytes) -> None:
+    pass
+
+# Can epoch be int instead of buffer?
+def server_get_epoch(handle: c_int64) -> bytes:
+    err = FfiError()
+    buffer = FfiByteBuffer()
+    lib_fn = _get_func("allosaurus_server_get_epoch")
+    lib_fn(handle, byref(buffer), byref(err))
+    if err.code != 0:
+        message = string_at(err.message)
+        raise Exception(message)
+    result = _decode_bytes(buffer)
+    return result
+
+def user_random(
+        alpha: bytes,
+        s: bytes,
+        acc_params: bytes,
+        accumulator: bytes,
+        public_key: bytes,
+        epoch: bytes
+) -> bytes:
+    alpha = _encode_bytes(alpha)
+    s = _encode_bytes(s)
+    acc_params = _encode_bytes(acc_params)
+    accumulator = _encode_bytes(accumulator)
+    public_key = _encode_bytes(public_key)
+    epoch = _encode_bytes(epoch)
+    err = FfiError()
+    buffer = FfiByteBuffer()
+    lib_fn = _get_func("allosaurus_user_random")
+    lib_fn(alpha, s, acc_params, accumulator, public_key, epoch, byref(buffer), byref(err))
+    if err.code != 0:
+        message = string_at(err.message)
+        raise Exception(message)
+    result = _decode_bytes(buffer)
+    return result
+    
+def user_create_witness(user: bytes, params: bytes, server_handle: c_int64) -> bytes:
+    user = _encode_bytes(user)
+    params = _encode_bytes(params)
+    err = FfiError()
+    buffer = FfiByteBuffer()
+    lib_fn = _get_func("allosaurus_user_create_witness")
+    result = lib_fn(user, params, server_handle)
+    if result:
+        result = _decode_bytes(buffer)
+        return result
+    else:
+        raise Exception("Failed to create witness")
+    
+def user_make_membership_proof(user: bytes, params: bytes, public_keys: bytes, challenge: bytes) -> bytes:
+    user = _encode_bytes(user)
+    params = _encode_bytes(params)
+    public_keys = _encode_bytes(public_keys)
+    challenge = _encode_bytes(challenge)
+    err = FfiError()
+    buffer = FfiByteBuffer()
+    lib_fn = _get_func("allosaurus_user_make_membership_proof")
+    lib_fn(user, params, public_keys, challenge, byref(buffer), byref(err))
+    if err.code != 0:
+        message = string_at(err.message)
+        raise Exception(message)
+    result = _decode_bytes(buffer)
+    return result
+
+def user_check_witness(user: bytes, params: bytes, accumulator: bytes) -> bytes:
+    user = _encode_bytes(user)
+    params = _encode_bytes(params)
+    accumulator = _encode_bytes(accumulator)
+    err = FfiError()
+    buffer = FfiByteBuffer()
+    lib_fn = _get_func("allosaurus_user_check_witness")
+    lib_fn(user, params, accumulator, byref(buffer), byref(err))
+    if err.code != 0:
+        message = string_at(err.message)
+        raise Exception(message)
+    result = _decode_bytes(buffer)
+    return result
     
