@@ -248,7 +248,7 @@ pub extern "C" fn allosaurus_server_update(
     let num_epochs = usize::from_be_bytes(num_epochs.to_vec().as_slice().try_into().expect("Slice with incorrect length"));
     let y_shares = deserialize_scalars(y_shares.to_vec().as_slice()).unwrap();
 
-    let result =  SERVERS.call_with_output_mut(err, handle, move |server| {
+    let result = SERVERS.call_with_output_mut(err, handle, move |server| {
         let (ds, vs) = server.update(num_epochs, &y_shares);
         let mut ds_bytes = Vec::new();
         let mut vs_bytes = Vec::new();
@@ -367,6 +367,7 @@ pub extern "C" fn allosaurus_witness_check_membership(
     }
 }
 
+// error handling
 #[no_mangle]
 pub extern "C" fn allosaurus_user_random(
     alpha: ByteArray,
@@ -396,6 +397,7 @@ pub extern "C" fn allosaurus_user_random(
     0
 }
 
+// error handling
 #[no_mangle]
 pub extern "C" fn allosaurus_user_create_witness(
     user: ByteArray,
@@ -411,8 +413,9 @@ pub extern "C" fn allosaurus_user_create_witness(
     0
 }
 
+// error handling
 #[no_mangle]
-pub extern "C" fn allosaurus_make_membership_proof(
+pub extern "C" fn allosaurus_user_make_membership_proof(
     user: ByteArray,
     params: ByteArray,
     public_keys: ByteArray,
@@ -430,6 +433,7 @@ pub extern "C" fn allosaurus_make_membership_proof(
     0
 }
 
+// error handling
 #[no_mangle]
 pub extern "C" fn allosaurus_user_check_witness(
     user: ByteArray,
