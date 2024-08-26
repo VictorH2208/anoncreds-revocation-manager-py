@@ -135,7 +135,7 @@ impl From<G2Projective> for PublicKey {
 }
 
 impl PublicKey {
-    const BYTES: usize = 96;
+    pub const BYTES: usize = 96;
 
     /// Return the byte representation for this public key
     pub fn to_bytes(&self) -> [u8; Self::BYTES] {

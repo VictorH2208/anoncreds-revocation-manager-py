@@ -5,7 +5,7 @@ use crate::custom_bytebuffer::{DualByteBuffer, ByteBufferHandler};
 use ffi_support::{ ByteBuffer, ConcurrentHandleMap, ErrorCode, ExternError, HandleError, Handle};
 use blsful::inner_types::*;
 use lazy_static::lazy_static;
-use std::{ptr, slice, vec::Vec};
+use std::{ptr, slice, vec::Vec, panic::AssertUnwindSafe};
 
 use super::{servers::Server, utils::*, witness::*};
 
@@ -81,6 +81,20 @@ impl ByteArray {
         Self {
             length: data.len(),
             data: data.as_ptr(),
+        }
+    }
+
+    /// Convert to a slice
+    pub fn to_fixed_array(&self) -> Option<[u8; 32]> {
+        if self.length == 32 && !self.data.is_null() {
+            // Safe because we've checked that data is not null and length is exactly 32
+            unsafe {
+                let slice = slice::from_raw_parts(self.data, self.length);
+                let array: [u8; 32] = slice.try_into().expect("Slice with correct length");
+                Some(array)
+            }
+        } else {
+            None
         }
     }
 }
@@ -178,8 +192,7 @@ pub extern "C" fn allosaurus_server_witness(
     challenge: ByteArray,
     response: ByteArray,
     user_pub_key: ByteArray,
-    witeness_buffer: &mut Byte,
-    g1_proj_buffer: &mut ByteBuffer,
+    result_buffer: &mut ByteBuffer,
     err: &mut ExternError,
 ) -> i32 {
     let acc_param = acc_params_from_bytes(params.to_vec()).unwrap();
@@ -192,27 +205,25 @@ pub extern "C" fn allosaurus_server_witness(
     let user_pub_key = G1Projective::from_uncompressed(user_pub_key_array).unwrap();
 
     let result = SERVERS.call_with_result_mut(err, handle, move |server| {
-        let (witness, g1_proj) = server.witness(&acc_param, &user_id, &challenge, &response, &user_pub_key).unwrap();
-        let mut witness_bytes = witness.to_bytes().to_vec();
-        let g1_proj_bytes = g1_proj.to_uncompressed().to_vec();
-
-        result_buffer.set_buffer1(witness_bytes);
-        result_buffer.set_buffer2(g1_proj_bytes);
-        Ok(result_buffer)
-        // server.witness(&acc_param, &user_id, &challenge, &response, &user_pub_key).map_or_else(
-        //     || Err(ExternError::new_error(ErrorCode::new(-2), "unable to witness".to_string())),
-        //     |(witness, g1_proj)| {
-        //         let mut witness_bytes = witness.to_bytes().to_vec();
-        //         let g1_proj_bytes = g1_proj.to_uncompressed().to_vec();
-        //         result_buffer.set_buffer1(witness_bytes);
-        //         result_buffer.set_buffer2(g1_proj_bytes);
-        //     }
-        // )
+        match server.witness(&acc_param, &user_id, &challenge, &response, &user_pub_key) {
+            Some((witness, g1)) => {
+                let witness_bytes = witness.to_bytes().to_vec();
+                let g1_bytes = g1.to_uncompressed();
+                let mut buffer = Vec::new();
+                buffer.extend_from_slice(&witness_bytes.len().to_ne_bytes());
+                buffer.extend_from_slice(&g1_bytes.len().to_ne_bytes());
+                buffer.extend(&witness_bytes);
+                buffer.extend(&g1_bytes);
+                Ok(ByteBuffer::from_vec(buffer))
+            },
+            None => Err(ExternError::new_error(ErrorCode::new(-2), "unable to delete user_id".to_string()))
+        }
     });
     if err.get_code().is_success() {
         *result_buffer = result;
     }
     err.get_code().code()
+
 }
 
 #[no_mangle]
@@ -220,7 +231,7 @@ pub extern "C" fn allosaurus_server_update(
     handle: u64,
     num_epochs: ByteArray,
     y_shares: ByteArray,
-    buffer: &mut ByteBuffer,
+    result_buffer: &mut ByteBuffer,
     err: &mut ExternError,
 ) -> i32 {
     let num_epochs = usize::from_be_bytes(num_epochs.to_vec().as_slice().try_into().expect("Slice with incorrect length"));
@@ -237,23 +248,21 @@ pub extern "C" fn allosaurus_server_update(
             vs_bytes.extend_from_slice(&v.to_uncompressed());
         }
 
-        let mut buffer = Vec::new(); // ffi cannot take two buffers so combine the output into one
+        let mut buffer = Vec::new();
         buffer.extend_from_slice(&ds_bytes.len().to_ne_bytes());
         buffer.extend_from_slice(&vs_bytes.len().to_ne_bytes());
         buffer.extend(&ds_bytes);
         buffer.extend(&vs_bytes);
         ByteBuffer::from_vec(buffer)
     });
-    *buffer = result;
     if err.get_code().is_success() {
-        0  // Success
-    } else {
-        err.get_code().code()
-    }
+        *result_buffer = result;
+    } 
+    err.get_code().code()
 }
 
 #[no_mangle]
-pub extern "C" fn allosaurus_get_epoch(handle: u64, epoch_buffer: &mut ByteBuffer, err: &mut ExternError) -> i32 {
+pub extern "C" fn allosaurus_server_get_epoch(handle: u64, epoch_buffer: &mut ByteBuffer, err: &mut ExternError) -> i32 {
     let result = SERVERS.call_with_output_mut(err, handle, |server| {
         let epoch = server.get_epoch();
         let epoch_bytes = epoch.to_be_bytes().to_vec();
@@ -263,6 +272,104 @@ pub extern "C" fn allosaurus_get_epoch(handle: u64, epoch_buffer: &mut ByteBuffe
         *epoch_buffer = result;
     }
     err.get_code().code()
+}
+
+#[no_mangle]
+pub extern "C" fn allosaurus_witness_verify(
+    accumulator: ByteArray,
+    public_keys: ByteArray,
+    params: ByteArray,
+    user_id: ByteArray,
+    witness: ByteArray,
+) -> i32 {
+    let acc_vec = accumulator.to_vec();
+    let acc_array: &[u8; 96] = acc_vec.as_slice().try_into().expect("Slice with incorrect length");
+    let acc: Accumulator = G1Projective::from_uncompressed(acc_array).unwrap().into();
+    let public_keys = PublicKeys::from_bytes(public_keys.to_vec()).unwrap();
+    let params = acc_params_from_bytes(params.to_vec()).unwrap();
+    let user_id = element_from_bytes(user_id.to_vec()).unwrap();
+    let witness = Witness::from_bytes(&witness.to_vec()).unwrap();
+    
+    match Witness::verify(&acc, &public_keys, &params, &user_id, &witness) {
+        Ok(()) => 0,
+        Err(_) => -1
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn allosaurus_witness_make_membership(
+    witness: ByteArray,
+    user_id: ByteArray,
+    accumulator: ByteArray,
+    params: ByteArray,
+    public_keys: ByteArray,
+    challenge: ByteArray,
+    result_buffer: &mut ByteBuffer,
+) -> i32 {
+    let witness = Witness::from_bytes(&witness.to_vec()).unwrap();
+    let user_id = element_from_bytes(user_id.to_vec()).unwrap();
+    let acc_vec = accumulator.to_vec();
+    let acc_array: &[u8; 96] = acc_vec.as_slice().try_into().expect("Slice with incorrect length");
+    let acc: Accumulator = G1Projective::from_uncompressed(acc_array).unwrap().into();
+    let params = acc_params_from_bytes(params.to_vec()).unwrap();
+    let public_keys = PublicKeys::from_bytes(public_keys.to_vec()).unwrap();
+    let challenge = challenge.to_fixed_array().unwrap();
+
+    match Witness::make_membership_proof(&witness, &user_id, &acc, &params, &public_keys, &challenge) {
+        Some(proof) => {
+            let proof_bytes = proof.to_bytes(); 
+            *result_buffer = ByteBuffer::from_vec(proof_bytes.to_vec());
+            0
+        },
+        None => {
+            *result_buffer = ByteBuffer::default();
+            -1
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn allosaurus_witness_check_membership(
+    proof: ByteArray,
+    params: ByteArray,
+    public_keys: ByteArray,
+    accumulator: ByteArray,
+    challenge: ByteArray,
+    result_buffer: &mut ByteBuffer,
+) -> i32 {
+    let proof = proof.to_vec();
+    let proof_arr: &[u8; 432] = proof.as_slice().try_into().expect("Slice with incorrect length");
+    let proof = MembershipProof::from_bytes(proof_arr).unwrap();
+    let params = acc_params_from_bytes(params.to_vec()).unwrap();
+    let public_keys = PublicKeys::from_bytes(public_keys.to_vec()).unwrap();
+    let acc_vec = accumulator.to_vec();
+    let acc_array: &[u8; 96] = acc_vec.as_slice().try_into().expect("Slice with incorrect length");
+    let acc: Accumulator = G1Projective::from_uncompressed(acc_array).unwrap().into();
+    let challenge = challenge.to_fixed_array().unwrap();
+
+    if Witness::check_membership_proof(&proof, &params, &public_keys, &acc, &challenge) {
+        *result_buffer = ByteBuffer::from_vec(b"Proof valid".to_vec()); // Indicative success message
+        0
+    } else {
+        *result_buffer = ByteBuffer::from_vec(b"Proof invalid".to_vec()); // Indicative failure message
+        -2
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn allosaurus_user_new(
+    server_handle: u64,
+    user_id: ByteArray,
+) -> i32 {
+    let user_id = element_from_bytes(user_id.to_vec()).unwrap();
+    let result = SERVERS.call_with_result_mut(&mut ExternError::default(), server_handle, move |server| {
+        server.add(user_id).is_some()
+    });
+    if result {
+        0
+    } else {
+        -1
+    }
 }
 
 #[cfg(test)]

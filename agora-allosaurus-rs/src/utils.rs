@@ -19,6 +19,32 @@ pub struct PublicKeys {
     pub sign_key: PublicKey,
 }
 
+impl PublicKeys {
+    /// The number of bytes in the public keys
+    pub const BYTES: usize = 2 * PublicKey::BYTES;
+
+    /// Convert to bytes
+    pub fn to_bytes(&self) -> [u8; Self::BYTES] {
+        let mut d = [0u8; Self::BYTES];
+        d[0..PublicKey::BYTES].copy_from_slice(&self.witness_key.to_bytes());
+        d[PublicKey::BYTES..].copy_from_slice(&self.sign_key.to_bytes());
+        d
+    }
+
+    /// Convert from bytes
+    pub fn from_bytes(bytes: Vec<u8>) -> Option<Self> {
+        if bytes.len() != Self::BYTES {
+            return None;
+        }
+        let witness_key = PublicKey::try_from(array_ref![&bytes, 0, PublicKey::BYTES]).ok()?;
+        let sign_key = PublicKey::try_from(array_ref![&bytes, PublicKey::BYTES, PublicKey::BYTES]).ok()?;
+        Some(PublicKeys {
+            witness_key,
+            sign_key,
+        })
+    }
+}
+
 /// Group parameters
 #[derive(Copy, Clone, Debug, Deserialize, Serialize, Eq, PartialEq, Hash)]
 pub struct AccParams {

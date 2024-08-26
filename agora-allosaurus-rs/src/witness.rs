@@ -151,6 +151,28 @@ impl Witness {
         let challenge = Element::from_transcript(b"challenge", &mut transcript);
         challenge.0 == proof.challenge
     }
+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut res = Vec::new();
+        res.extend(self.secret_key.0.to_be_bytes().as_ref());
+        res.extend(self.witness.0.to_bytes().as_ref());
+        res.extend(self.signature.to_bytes().as_ref());
+        res
+    }
+
+    pub fn from_bytes(input: &[u8]) -> Result<Self, &'static str> {
+        if input.len() != 96 {
+            return Err("Invalid byte sequence");
+        }
+        let secret_key = SecretKey(sc(&input[0..32])?);
+        let witness = MembershipWitness(g1(&input[32..64])?);
+        let signature = g1(&input[64..96])?;
+        Ok(Self {
+            secret_key,
+            witness,
+            signature,
+        })
+    }
 }
 
 /// The commit or blinding step for generating a ZKP

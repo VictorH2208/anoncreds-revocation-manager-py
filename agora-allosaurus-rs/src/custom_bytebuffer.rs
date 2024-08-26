@@ -21,7 +21,12 @@ unsafe impl IntoFfi for &mut DualByteBuffer {
     fn into_ffi_value(self) -> Self::Value {
         (&mut self.buffer1, &mut self.buffer2)
     }
+
+    fn ffi_default() -> Self::Value {
+        (std::ptr::null_mut(), std::ptr::null_mut())
+    }
 }
+
 
 
 impl ByteBufferHandler for DualByteBuffer {
@@ -61,8 +66,8 @@ impl ByteBufferHandler for DualByteBuffer {
         let buffer1_len = u32::from_ne_bytes(buffer[0..4].try_into().unwrap()) as usize;
         let buffer2_len = u32::from_ne_bytes(buffer[4..8].try_into().unwrap()) as usize;
 
-        let buffer1_buffer = ByteBuffer::from_vec(buffer[8..8 + buffer1_len].to_vec());
-        let buffer2_buffer = ByteBuffer::from_vec(buffer[8 + buffer1_len..8 + buffer1_len + buffer2_len].to_vec());
+        let buffer1 = ByteBuffer::from_vec(buffer[8..8 + buffer1_len].to_vec());
+        let buffer2 = ByteBuffer::from_vec(buffer[8 + buffer1_len..8 + buffer1_len + buffer2_len].to_vec());
 
         DualByteBuffer {
             buffer1,
