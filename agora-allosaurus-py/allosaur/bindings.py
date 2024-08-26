@@ -123,3 +123,35 @@ def _get_library() -> CDLL:
 
 def _get_func(fn_name: str):
     return getattr(_get_library(), fn_name)
+
+def _free_buffer(buffer: FfiByteBuffer):
+    lib_fn = _get_func("allosaurus_byte_buffer_free")
+    lib_fn(byref(buffer))
+
+
+def _free_string(err: FfiError):
+    lib_fn = _get_func("allosaurus_string_free")
+    lib_fn(byref(err))
+
+
+def _free_handle(handle: c_int64, err: FfiError):
+    lib_fn = _get_func("allosaurus_create_proof_free")
+    lib_fn(handle, byref(err))
+
+def new_server() -> c_int64:
+    err = FfiError()
+    lib_fn = _get_func("allosaurus_new_server")
+    lib_fn.restype = c_uint64
+
+    handle = lib_fn(byref(err))
+    if handle == 0:
+        message = string_at(err.message)
+        raise Exception(message)
+    handle = c_uint64(handle)
+    _free_string(err)
+    return handle
+
+def server_add(handle: c_int64, user_id: bytes) -> None:
+    err = FfiError()
+    buffer = FfiByteBuffer()
+    
