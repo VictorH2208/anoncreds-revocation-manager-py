@@ -45,6 +45,10 @@ impl SecretKey {
         self.0.to_be_bytes()
     }
 
+    pub fn from_bytes(bytes: &[u8; Self::BYTES]) -> Self {
+        Self(Scalar::from_be_bytes(bytes).unwrap())
+    }
+
     /// Compute the batch add elements value
     pub fn batch_additions(&self, additions: &[Element]) -> Element {
         Element(

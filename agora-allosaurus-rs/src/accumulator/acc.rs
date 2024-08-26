@@ -256,6 +256,12 @@ impl Accumulator {
         d.copy_from_slice(self.0.to_bytes().as_ref());
         d
     }
+
+    /// Convert bytes to accumulator
+    pub fn from_bytes(bytes: [u8; Self::BYTES]) -> Option<Self> {
+        let g = G1Projective::from_compressed(&bytes);
+        g.map(Self).into()
+    }
 }
 
 #[cfg(test)]
