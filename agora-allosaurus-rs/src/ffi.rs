@@ -22,7 +22,7 @@ define_string_destructor!(allosaurus_string_free);
 /// Cleanup created byte buffers
 define_bytebuffer_destructor!(allosaurus_byte_buffer_free);
 /// Cleanup created proof contexts
-define_handle_map_deleter!(CREATE_PROOF_CONTEXT, allosaurus_create_proof_free);
+define_handle_map_deleter!(SERVERS, allosaurus_create_proof_free);
 
 /// Used for receiving byte arrays
 #[repr(C)]

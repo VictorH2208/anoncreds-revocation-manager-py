@@ -6,7 +6,7 @@ edition = "2021"
 homepage = "https://github.com/hyperledger-labs/agora-allosaurus-rs"
 keywords = ["crypto", "accumulator", "mpc", "revocation"]
 license-file = "LICENSE"
-name = "agora-allosaurus-rs"
+name = "agora_allosaurus_rs"
 readme = "README.md"
 repository = "https://github.com/hyperledger-labs/agora-allosaurus-rs"
 version = "0.1.0"
@@ -15,7 +15,7 @@ version = "0.1.0"
 crate-type = ["rlib", "cdylib"]
 
 [features]
-default = []
+default = ["ffi"]
 ffi = ["ffi-support", "lazy_static", "rand/default", "std"]
 std = ["blstrs_plus", "digest/std", "sha3/std"]
 
