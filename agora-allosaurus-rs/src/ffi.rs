@@ -162,7 +162,8 @@ pub extern "C" fn allosaurus_new_server(err: &mut ExternError) -> u64 {
 
 #[no_mangle]
 pub extern "C" fn allosaurus_server_add(handle: u64, user_id: ByteArray, witness_buffer: &mut ByteBuffer, err: &mut ExternError) ->i32 {
-    let deserial_user_id = element_from_bytes(user_id.to_vec()).unwrap();
+    // let deserial_user_id = element_from_bytes(user_id.to_vec()).unwrap();
+    let deserial_user_id = User::from_bytes(&user_id.to_vec()).unwrap().get_id();
     let result = SERVERS.call_with_result_mut(err, handle, move |server| -> Result<ByteBuffer, ExternError> {
         server.add(deserial_user_id).map_or_else(
             || Err(ExternError::new_error(ErrorCode::new(-2), "unable to add user_id".to_string())),
@@ -367,6 +368,15 @@ pub extern "C" fn allosaurus_witness_check_membership(
     }
 }
 
+#[no_mangle]
+pub extern "C" fn allosaurus_new_user(handle: u64, user: &mut ByteBuffer, err: &mut ExternError) -> i32 {
+    let server = SERVERS.get(Handle::from_u64(handle).unwrap(), |server| {
+        *user = ByteBuffer::from_vec(User::new(server, UserID::random()).to_bytes().to_vec());
+        Ok::<(), HandleError>(())
+    }).unwrap();
+    0
+}
+
 // error handling
 #[no_mangle]
 pub extern "C" fn allosaurus_user_random(
@@ -379,7 +389,7 @@ pub extern "C" fn allosaurus_user_random(
     result_buffer: &mut ByteBuffer,
 ) -> i32 {
     let alpha_vec = alpha.to_vec();
-    let alpha_arr: &[u8; 32] = alpha_vec.as_slice().try_into().expect("Slice with incorrect length");;
+    let alpha_arr: &[u8; 32] = alpha_vec.as_slice().try_into().expect("Slice with incorrect length");
     let alpha = SecretKey::from_bytes(alpha_arr);
     let s_vec = s.to_vec();
     let s_arr: &[u8; 32] = s_vec.as_slice().try_into().expect("Slice with incorrect length");
