@@ -21,8 +21,6 @@ pub struct User {
 }
 
 impl User {
-    pub const BYTES: usize = 1028;
-
     /// New "empty" user
     pub fn new(server: &Server, id: UserID) -> User {
         User {
@@ -327,33 +325,6 @@ impl User {
             None => Err("no witness"),
         }
     }
-
-    pub fn to_bytes(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(User::BYTES);
-        bytes.extend_from_slice(&self.id.to_bytes());
-        bytes.extend_from_slice(&self.get_accumulator().to_bytes());
-        bytes.extend_from_slice(&self.public_keys.to_bytes());
-        bytes.extend_from_slice(&self.epoch.to_be_bytes());
-        bytes
-    }
-
-    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        if bytes.len() != User::BYTES {
-            return None;
-        }
-        let id = UserID::from_bytes(bytes[..32].try_into().unwrap())?;
-        let accumulator = Accumulator::from_bytes(bytes[32..80].try_into().unwrap())?;
-        let public_keys = PublicKeys::from_bytes((&bytes[64..1024]).to_vec())?;
-        let epoch = u64::from_be_bytes(bytes[1024..1032].try_into().unwrap()) as usize;
-        Some(User {
-            id,
-            witness: None,
-            accumulator,
-            public_keys,
-            epoch,
-        })
-    }
-
 }
 
 /// A user update message
@@ -365,46 +336,4 @@ pub struct UserUpdate {
     pub y_shares: Vec<Vec<Scalar>>,
     /// The powers of the user's ID to be retained
     pub y_values: Vec<Scalar>,
-}
-
-impl UserUpdate {
-    pub fn to_bytes(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(1024);
-        bytes.extend_from_slice(&self.epoch_diff.to_be_bytes());
-        for share in &self.y_shares {
-            for s in share {
-                bytes.extend_from_slice(&s.to_be_bytes());
-            }
-        }
-        for value in &self.y_values {
-            bytes.extend_from_slice(&value.to_be_bytes());
-        }
-        bytes
-    }
-
-    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        if bytes.len() < 8 {
-            return None;
-        }
-        let epoch_diff = u64::from_be_bytes(bytes[..8].try_into().unwrap()) as usize;
-        let mut y_shares = Vec::new();
-        let mut y_values = Vec::new();
-        let mut i = 8;
-        while i + 32 < bytes.len() {
-            let share = bytes[i..i + 32].try_into().ok()?;
-            let scalar = Scalar::from_be_bytes(&share).unwrap();
-            y_shares.push(scalar);
-            i += 32;
-        }
-        while i + 32 < bytes.len() {
-            let value = bytes[i..i + 32].try_into().ok()?;
-            y_values.push(Scalar::from_be_bytes(&value).unwrap());
-            i += 32;
-        }
-        Some(UserUpdate {
-            epoch_diff,
-            y_shares: y_shares.chunks(32).map(|c| c.try_into().unwrap()).collect(),
-            y_values,
-        })
-    }
 }

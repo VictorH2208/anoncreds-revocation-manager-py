@@ -33,6 +33,6 @@ pub use witness::*;
 #[cfg(feature = "ffi")]
 pub use ffi::*;
 #[cfg(feature = "ffi")]
-pub use custom_bytebuffer::{DualByteBuffer, ByteBufferHandler};
+pub use custom_bytebuffer::*;
 
 
