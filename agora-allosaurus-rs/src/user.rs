@@ -103,7 +103,7 @@ impl User {
                 witness,
                 signature,
             });
-            println!("Witness created for user {:?}", self.id);
+            // println!("Witness created for user {:?}", self.id);
             self.epoch = server.get_epoch();
             self.accumulator = server.get_accumulator();
         }
@@ -324,7 +324,7 @@ impl User {
         params: &AccParams,
         accumulator: &Accumulator,
     ) -> Result<(), &'static str> {
-        println!("Checking witness for user {:?}", self.id);
+        // println!("Checking witness for user {:?}", self.id);
         match &self.witness {
             Some(witness) => {
                 Witness::verify(accumulator, &self.public_keys, params, &self.id, witness)
