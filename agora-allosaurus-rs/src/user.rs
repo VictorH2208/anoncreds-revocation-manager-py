@@ -82,7 +82,7 @@ impl User {
     pub fn create_witness(&mut self, params: &AccParams, server: &Server) {
         let key = SecretKey::new(None);
         let user_pub_key = params.get_k1() * key.0;
-        // Create a Schnorr proof
+        // Create a Schnorr proofq
         let k = Element::random();
         let k_point = params.get_k1() * k.0;
         let mut transcript = Transcript::new(b"user_signature_proof");
@@ -103,6 +103,7 @@ impl User {
                 witness,
                 signature,
             });
+            println!("Witness created for user {:?}", self.id);
             self.epoch = server.get_epoch();
             self.accumulator = server.get_accumulator();
         }
@@ -243,6 +244,11 @@ impl User {
         Ok(new_witness)
     }
 
+
+    // server list to ptrs get u64
+    // server_list: const *u64,
+    // server_cnt: usize
+    // let servers = unsafe { std::slice::from_raw_parts(server_list, server_cnt };
     /// Updates to the latest available epoch, from a set of servers
     pub fn update(&mut self, servers: &[Server], threshold: usize) -> Result<(), &'static str> {
         if self.witness.is_none() {
@@ -318,6 +324,7 @@ impl User {
         params: &AccParams,
         accumulator: &Accumulator,
     ) -> Result<(), &'static str> {
+        println!("Checking witness for user {:?}", self.id);
         match &self.witness {
             Some(witness) => {
                 Witness::verify(accumulator, &self.public_keys, params, &self.id, witness)
