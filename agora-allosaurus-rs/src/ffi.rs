@@ -9,7 +9,6 @@ use blsful::inner_types::*;
 use lazy_static::lazy_static;
 use std::{ptr, slice, vec::Vec};
 use postcard;
-use rand::RngCore;
 
 use super::{servers::Server, witness::*, user::*};
 
@@ -181,9 +180,10 @@ pub extern "C" fn allosaurus_server_update(
         let crate::accumulator::Element(scalar) = user_id;
         scalar
     }).collect();
-    
+    println!("user_ids: {:?}", user_ids);
     let result = SERVERS.call_with_output_mut(err, server_handle, move |server| {
         let (ds, vs) = server.update(server.get_epoch(), &user_ids);
+        println!("ds: {:?}, vs: {:?}", ds, vs);
         let mut custom_struct = CustomStructForServerUpdate::new();
         custom_struct.add_multiple(ds, vs);
         ByteBuffer::from_vec(postcard::to_stdvec(&custom_struct).unwrap())
@@ -258,15 +258,19 @@ pub extern "C" fn allosaurus_server_get_public_keys(handle: u64, result_buffer: 
 pub extern "C" fn allosaurus_user_create_witness(
     server_handle: u64,
     user: ByteArray,
+    user_buffer: &mut ByteBuffer,
     err: &mut ExternError,
 ) -> i32 {
     let mut user: User = postcard::from_bytes(&user.to_vec()).unwrap();
     let result = SERVERS.get(Handle::from_u64(server_handle).unwrap(), |server| {
         user.create_witness(&AccParams::default(), &server);
-        Ok::<(), HandleError>(())
+        Ok::<User, HandleError>(user)
     });
     match result {
-        Ok(_) => 0,
+        Ok(user) => {
+            *user_buffer = ByteBuffer::from_vec(postcard::to_stdvec(&user).unwrap());
+            0
+        },
         Err(_) => {
             *err = ExternError::new_error(ErrorCode::new(-2), "unable to create witness".to_string());
             -1
@@ -275,48 +279,33 @@ pub extern "C" fn allosaurus_user_create_witness(
     err.get_code().code()
 }
 
-// ????
+
 #[no_mangle]
 pub extern "C" fn allosaurus_user_check_witness(
-    server_handle: u64,
     user: ByteArray,
-    err: &mut ExternError,
 ) -> i32 {
-    let mut user: User = postcard::from_bytes(&user.to_vec()).unwrap();
+    let user: User = postcard::from_bytes(&user.to_vec()).unwrap();
     let params = AccParams::default();
-    let result = SERVERS.get(Handle::from_u64(server_handle).unwrap(), |server| {
-        user.create_witness(&params, server);
-        match user.check_witness(&params, &server.get_accumulator()) {
-            Ok(()) => Ok::<(), HandleError>(()),
-            Err(_) => Err(HandleError::NullHandle),
-        }
-    });
-    match result {
+    match user.check_witness(&params, &user.get_accumulator()) {
         Ok(_) => 0,
-        Err(_) => {
-            *err = ExternError::new_error(ErrorCode::new(-2), "Check witness failed".to_string());
-            -1
-        }
-    };
-    err.get_code().code()
+        Err(_) => -2,
+    }
 }
 
-// ????
 #[no_mangle]
 pub extern "C" fn allosaurus_user_make_membership_proof(
     server_handle: u64,
     user: ByteArray,
+    challenge: ByteArray,
     proof_buffer: &mut ByteBuffer,
     err: &mut ExternError
 ) -> i32 {
-    let mut user: User = postcard::from_bytes(&user.to_vec()).unwrap();
+    let user: User = postcard::from_bytes(&user.to_vec()).unwrap();
     let params = AccParams::default();
-    let mut ephemeral_challenge = [0u8; 2*SECURITY_BYTES];
-    rand::rngs::OsRng.fill_bytes(&mut ephemeral_challenge);
+    let challenge = challenge.to_fixed_array().unwrap();
     let result = SERVERS.get(Handle::from_u64(server_handle).unwrap(), |server| {
-        user.create_witness(&params, &server);
-        let proof = user.make_membership_proof(&params, &server.get_public_keys(), &ephemeral_challenge);
-        let custom_membership_proof = CustomStructForMembershipProof::new(proof.unwrap(), ephemeral_challenge);
+        let proof = user.make_membership_proof(&params, &server.get_public_keys(), &challenge);
+        let custom_membership_proof = CustomStructForMembershipProof::new(proof.unwrap(), challenge);
         let buffer = ByteBuffer::from_vec(postcard::to_stdvec(&custom_membership_proof).unwrap());
         Ok::<ByteBuffer, HandleError>(buffer)
     });
@@ -360,26 +349,38 @@ pub extern "C" fn allosaurus_witness_check_membership_proof(
     err.get_code().code()
 }
 
-// #[no_mangle]
-// pub extern "C" fn allosaurus_user_update(
-//     server_list: *const u64,
-//     server_cnt: usize,
-//     user: ByteArray,
-//     threshold: u64,
-// ) -> i32{
-//     let mut user: User = postcard::from_bytes(&user.to_vec()).unwrap();
-//     let server_handles = unsafe { slice::from_raw_parts(server_list, server_cnt) };
-//     let server_refs = server_handles.iter().filter_map(|&handle| {
-//         Handle::from_u64(handle).ok().and_then(|handle| {
-//             SERVERS.get(handle, |server| Ok::<&Server, HandleError>(server)).ok()
-//         })
-//     }).collect::<Vec<&Server>>();
-//     0
-//     // match user.update(&server_refs[..], threshold as usize) {
-//     //     Ok(()) => 0,
-//     //     Err(_) => -1,
-//     // }
-// }
+#[no_mangle]
+pub extern "C" fn allosaurus_user_update(
+    server_list: *const u64,
+    server_cnt: usize,
+    user: ByteArray,
+    threshold: u64,
+    new_user: &mut ByteBuffer,
+    err: &mut ExternError,
+) -> i32{ 
+    let mut tmp_err = ExternError::default();
+    let mut user: User = postcard::from_bytes(&user.to_vec()).unwrap();
+    let server_handles = unsafe { slice::from_raw_parts(server_list, server_cnt) };
+    let mut server_refs = Vec::<Server>::with_capacity(server_cnt);
+    server_handles.iter().for_each(|&handle| {
+        let result = SERVERS.call_with_output(&mut tmp_err, handle, |server| {    
+            ByteBuffer::from_vec(postcard::to_stdvec(server).unwrap())
+        });
+        let server = postcard::from_bytes(result.as_slice()).unwrap();
+        server_refs.push(server);
+
+    });
+    match user.update(&server_refs[..], threshold as usize) {
+        Ok(()) => {
+            *new_user = ByteBuffer::from_vec(postcard::to_stdvec(&user).unwrap());
+            0
+        },
+        Err(_) => {
+            *err = ExternError::new_error(ErrorCode::new(-2), "unable to update user".to_string());
+            -1
+        },
+    }
+}
 
 
 #[cfg(test)]

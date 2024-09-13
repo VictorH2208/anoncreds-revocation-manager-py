@@ -34,40 +34,6 @@ def new_user():
     encoded_user = base64.b64encode(user).decode('utf-8')
     return {"user": encoded_user}
 
-@app.get("/server_get_epoch")
-def server_get_epoch():
-    server = get_registry_state()
-    epoch = bindings.server_get_epoch(server)
-    return {"Current epoch is": epoch}
-
-@app.get("/server_get_accumulator")
-def server_get_accumulator():
-    server = get_registry_state()
-    accumulator = bindings.server_get_accumulator(server)
-    encoded_accumulator = base64.b64encode(accumulator).decode('utf-8')
-    return {"Current accumulator is": encoded_accumulator}
-
-@app.get("/server_get_witness_public_key")
-def server_get_witness_public_key():
-    server = get_registry_state()
-    witness_public_key = bindings.server_get_witness_public_key(server)
-    encoded_witness_public_key = base64.b64encode(witness_public_key).decode('utf-8')
-    return {"Current witness public key is": encoded_witness_public_key}
-
-@app.get("/server_get_sign_public_key")
-def server_get_sign_public_key():
-    server = get_registry_state()
-    sign_public_key = bindings.server_get_sign_public_key(server)
-    encoded_sign_public_key = base64.b64encode(sign_public_key).decode('utf-8')
-    return {"Current sign public key is": encoded_sign_public_key}
-
-@app.get("/server_get_public_keys")
-def server_get_public_keys():
-    server = get_registry_state()
-    public_keys = bindings.server_get_public_keys(server)
-    encoded_public_keys = base64.b64encode(public_keys).decode('utf-8')
-    return {"Current public keys are": encoded_public_keys}
-
 @app.post("/server_add")
 def server_add(user_input: UserInput):
     try:
@@ -103,6 +69,17 @@ def user_create_witness(user_input: UserInput):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
     
+@app.post("/user_check_witness")
+def user_check_witness(user_input: UserInput):
+    try:
+        encoded_user_str = user_input.user
+        user = base64.b64decode(encoded_user_str)
+        server = get_registry_state()
+        bindings.check_witness(server, user)
+        return {"Witness verified successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
 @app.post("/user_make_membership_proof")
 def user_make_membership_proof(user_input: UserInput):
     try:
@@ -112,17 +89,6 @@ def user_make_membership_proof(user_input: UserInput):
         membership_proof = bindings.user_make_membership_proof(server, user)
         encoded_membership_proof = base64.b64encode(membership_proof).decode('utf-8')
         return {"Membership proof is": encoded_membership_proof}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    
-@app.post("/user_check_witness")
-def user_check_witness(user_input: UserInput):
-    try:
-        encoded_user_str = user_input.user
-        user = base64.b64decode(encoded_user_str)
-        server = get_registry_state()
-        bindings.check_witness(server, user)
-        return {"Witness verified successfully"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
     
@@ -137,7 +103,39 @@ def witness_check_membership_proof(proof_input: ProofInput):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
     
+@app.get("/server_get_epoch")
+def server_get_epoch():
+    server = get_registry_state()
+    epoch = bindings.server_get_epoch(server)
+    return {"Current epoch is": epoch}
 
+@app.get("/server_get_accumulator")
+def server_get_accumulator():
+    server = get_registry_state()
+    accumulator = bindings.server_get_accumulator(server)
+    encoded_accumulator = base64.b64encode(accumulator).decode('utf-8')
+    return {"Current accumulator is": encoded_accumulator}
+
+@app.get("/server_get_witness_public_key")
+def server_get_witness_public_key():
+    server = get_registry_state()
+    witness_public_key = bindings.server_get_witness_public_key(server)
+    encoded_witness_public_key = base64.b64encode(witness_public_key).decode('utf-8')
+    return {"Current witness public key is": encoded_witness_public_key}
+
+@app.get("/server_get_sign_public_key")
+def server_get_sign_public_key():
+    server = get_registry_state()
+    sign_public_key = bindings.server_get_sign_public_key(server)
+    encoded_sign_public_key = base64.b64encode(sign_public_key).decode('utf-8')
+    return {"Current sign public key is": encoded_sign_public_key}
+
+@app.get("/server_get_public_keys")
+def server_get_public_keys():
+    server = get_registry_state()
+    public_keys = bindings.server_get_public_keys(server)
+    encoded_public_keys = base64.b64encode(public_keys).decode('utf-8')
+    return {"Current public keys are": encoded_public_keys}
     
 @app.get("/")
 def read_root():
