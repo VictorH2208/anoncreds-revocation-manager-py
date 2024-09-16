@@ -58,14 +58,27 @@ def server_delete(user_input: UserInput):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
     
+@app.post("/server_batch_delete")
+def server_batch_delete(user_list_input: UserList):
+    try:
+        user_list = user_list_input.users
+        user_list = [base64.b64decode(encoded_user_str) for encoded_user_str in user_list]
+        server = get_registry_state()
+        accumulator = bindings.server_batch_delete(server, user_list)
+        encoded_accumulator = base64.b64encode(accumulator).decode('utf-8')
+        return {"Batch delete successful, accumulator is": encoded_accumulator}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
 @app.post("/user_create_witness")
 def user_create_witness(user_input: UserInput):
     try:
         encoded_user_str = user_input.user
         user = base64.b64decode(encoded_user_str)
         server = get_registry_state()
-        bindings.user_create_witness(server, user)
-        return {"Witness created successfully"}
+        user = bindings.user_create_witness(server, user)
+        encoded_user = base64.b64encode(user).decode('utf-8')
+        return {"user": encoded_user}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
     
@@ -74,8 +87,7 @@ def user_check_witness(user_input: UserInput):
     try:
         encoded_user_str = user_input.user
         user = base64.b64decode(encoded_user_str)
-        server = get_registry_state()
-        bindings.check_witness(server, user)
+        bindings.check_witness(user)
         return {"Witness verified successfully"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -100,6 +112,18 @@ def witness_check_membership_proof(proof_input: ProofInput):
         server = get_registry_state()
         bindings.witness_check_membership_proof(server, proof)
         return {"Membership proof verified successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+@app.post("/user_update")
+def user_update(update_input: UpdateInput):
+    try:
+        encoded_user_str = update_input.user
+        user = base64.b64decode(encoded_user_str)
+        servers = get_registry_state()
+        accumulator = bindings.user_update([servers], user, update_input.threshold)
+        encoded_accumulator = base64.b64encode(accumulator).decode('utf-8')
+        return {"Update successful, accumulator is": encoded_accumulator}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
     

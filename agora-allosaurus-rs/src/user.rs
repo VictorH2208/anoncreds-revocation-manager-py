@@ -245,10 +245,6 @@ impl User {
     }
 
 
-    // server list to ptrs get u64
-    // server_list: const *u64,
-    // server_cnt: usize
-    // let servers = unsafe { std::slice::from_raw_parts(server_list, server_cnt };
     /// Updates to the latest available epoch, from a set of servers
     pub fn update(&mut self, servers: &[Server], threshold: usize) -> Result<(), &'static str> {
         if self.witness.is_none() {

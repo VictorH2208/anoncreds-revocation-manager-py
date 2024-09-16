@@ -180,7 +180,7 @@ pub extern "C" fn allosaurus_server_update(
         let crate::accumulator::Element(scalar) = user_id;
         scalar
     }).collect();
-    println!("user_ids: {:?}", user_ids);
+    // println!("user_ids: {:?}", user_ids);
     let result = SERVERS.call_with_output_mut(err, server_handle, move |server| {
         let (ds, vs) = server.update(server.get_epoch(), &user_ids);
         println!("ds: {:?}, vs: {:?}", ds, vs);
@@ -376,6 +376,7 @@ pub extern "C" fn allosaurus_user_update(
             0
         },
         Err(_) => {
+            println!("Err");
             *err = ExternError::new_error(ErrorCode::new(-2), "unable to update user".to_string());
             -1
         },

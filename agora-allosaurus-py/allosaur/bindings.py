@@ -12,6 +12,7 @@ from ctypes import (
     c_int64,
     c_uint64,
     c_ubyte,
+    cast
 )
 
 from ctypes.util import find_library
@@ -155,7 +156,7 @@ def new_user(server) -> c_int64:
     lib_fn = _get_func("allosaurus_new_user")
     lib_fn(server, byref(buffer), byref(err))
 
-    if not buffer:
+    if err.code != 0:
         message = string_at(err.message)
         raise Exception(message)
     buffer = _decode_bytes(buffer)
@@ -167,7 +168,7 @@ def server_add(server, user) -> c_int64:
     err = FfiError()
     lib_fn = _get_func("allosaurus_server_add")
     lib_fn(server, _encode_bytes(user), byref(buffer), byref(err))
-    if not buffer:
+    if err.code != 0:
         message = string_at(err.message)
         raise Exception(message)
     buffer = _decode_bytes(buffer)
@@ -179,7 +180,7 @@ def server_delete(server, user) -> c_int64:
     err = FfiError()
     lib_fn = _get_func("allosaurus_server_delete")
     lib_fn(server, _encode_bytes(user), byref(buffer), byref(err))
-    if not buffer:
+    if err.code != 0:
         message = string_at(err.message)
         raise Exception(message)
     buffer = _decode_bytes(buffer)
@@ -197,7 +198,7 @@ def server_get_accumulator(server) -> c_int64:
     err = FfiError()
     lib_fn = _get_func("allosaurus_server_get_accumulator")
     lib_fn(server, byref(buffer), byref(err))
-    if not buffer:
+    if err.code != 0:
         message = string_at(err.message)
         raise Exception(message)
     buffer = _decode_bytes(buffer)
@@ -210,7 +211,7 @@ def server_get_witness_public_key(server) -> c_int64:
     lib_fn = _get_func("allosaurus_server_get_witness_public_key")
     lib_fn(server, byref(buffer), byref(err))
     print(buffer)
-    if not buffer:
+    if err.code != 0:
         message = string_at(err.message)
         raise Exception(message)
     buffer = _decode_bytes(buffer)
@@ -222,7 +223,7 @@ def server_get_sign_public_key(server) -> c_int64:
     err = FfiError()
     lib_fn = _get_func("allosaurus_server_get_sign_public_key")
     lib_fn(server, byref(buffer), byref(err))
-    if not buffer:
+    if err.code != 0:
         message = string_at(err.message)
         raise Exception(message)
     buffer = _decode_bytes(buffer)
@@ -234,27 +235,30 @@ def server_get_public_keys(server) -> c_int64:
     err = FfiError()
     lib_fn = _get_func("allosaurus_server_get_public_keys")
     lib_fn(server, byref(buffer), byref(err))
-    if not buffer:
+    if err.code != 0:
         message = string_at(err.message)
         raise Exception(message)
     buffer = _decode_bytes(buffer)
     return buffer
 
 def user_create_witness(server, user):
+    buffer = FfiByteBuffer()
     err = FfiError()
     lib_fn = _get_func("allosaurus_user_create_witness")
-    lib_fn(server, _encode_bytes(user), byref(err))
+    lib_fn(server, _encode_bytes(user), byref(buffer), byref(err))
     if err.code != 0:
         message = string_at(err.message)
         raise Exception(message)
-    return "Witness created successfully"
+    buffer = _decode_bytes(buffer)
+    return buffer
 
 def user_make_membership_proof(server, user) -> c_int64:
     buffer = FfiByteBuffer()
     err = FfiError()
+    challenge = bytearray(os.urandom(32))
     lib_fn = _get_func("allosaurus_user_make_membership_proof")
-    lib_fn(server, _encode_bytes(user), byref(buffer), byref(err))
-    if not buffer:
+    lib_fn(server, _encode_bytes(user), _encode_bytes(challenge), byref(buffer), byref(err))
+    if err.code != 0:
         message = string_at(err.message)
         raise Exception(message)
     buffer = _decode_bytes(buffer)
@@ -269,11 +273,41 @@ def witness_check_membership_proof(server, proof) -> c_int64:
         raise Exception(message)
     return "Membership proof verified successfully"
 
-def check_witness(server, user):
-    err = FfiError()
+def check_witness(user):
     lib_fn = _get_func("allosaurus_user_check_witness")
-    lib_fn(server, _encode_bytes(user), byref(err))
+    err = lib_fn(_encode_bytes(user))
+    if err != 0:
+        raise Exception("Witness is invalid")
+    return "Witness is valid"
+
+def server_batch_delete(server, user_list):
+    user_buffer = (FfiByteBuffer * len(user_list))()
+    for i, tmp_user in enumerate(user_list):
+        array_type = c_ubyte * len(tmp_user)
+        c_array = array_type(*tmp_user)
+        user_buffer[i].length = len(tmp_user)
+        user_buffer[i].data = cast(c_array, POINTER(c_ubyte))
+
+    buffer = FfiByteBuffer()
+    err = FfiError()
+    lib_fn = _get_func("allosaurus_server_update")
+    lib_fn(user_buffer, len(user_list), server, byref(buffer), byref(err))
     if err.code != 0:
         message = string_at(err.message)
         raise Exception(message)
-    return "Witness is valid"
+    buffer = _decode_bytes(buffer)
+    return buffer
+
+def user_update(servers, user, threshold) -> c_int64:
+    array_type = c_uint64 * len(servers)
+    servers = array_type(*servers)
+
+    buffer = FfiByteBuffer()
+    err = FfiError()
+    lib_fn = _get_func("allosaurus_user_update")
+    lib_fn(servers, len(servers), _encode_bytes(user), threshold, byref(buffer), byref(err))
+    if err.code != 0:
+        message = string_at(err.message)
+        raise Exception(message)
+    buffer = _decode_bytes(buffer)
+    return buffer
