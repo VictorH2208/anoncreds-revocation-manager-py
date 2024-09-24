@@ -115,7 +115,7 @@ def witness_check_membership_proof(proof_input: ProofInput):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
     
-@app.post("/user_update")
+@app.post("/user_mpc_update")
 def user_update(update_input: UpdateInput):
     try:
         encoded_user_str = update_input.user
