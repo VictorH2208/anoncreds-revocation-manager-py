@@ -34,7 +34,7 @@ blstrs_plus = { version = "^0.8.4", features = ["portable"], optional = true }
 digest = { version = "0.10", default-features = false }
 bincode = "1.3"
 arrayref = "0.3.6"
-postcard = { version = "1.0.0", features = ["use-std"] }
+postcard = { version = "1.0.10", features = ["use-std"] }
 
 [dev-dependencies]
 criterion = "0.5"

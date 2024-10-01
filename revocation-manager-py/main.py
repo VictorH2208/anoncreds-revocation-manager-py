@@ -3,9 +3,9 @@ from fastapi import FastAPI, HTTPException, Request
 import importlib.util
 import base64
 
-from models import *
+from .models import *
 
-path = '../agora-allosaurus-py/allosaur/bindings.py' 
+path = 'agora-allosaurus-py/allosaur/bindings.py' 
 
 spec = importlib.util.spec_from_file_location("bindings", path)
 bindings = importlib.util.module_from_spec(spec)
