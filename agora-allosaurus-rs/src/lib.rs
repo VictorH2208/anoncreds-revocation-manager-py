@@ -24,6 +24,7 @@ mod custom_bytebuffer;
 mod tests;
 #[cfg(feature = "ffi")]
 mod ffi;
+mod mpc;
 
 pub mod accumulator;
 pub use servers::*;
@@ -34,5 +35,3 @@ pub use witness::*;
 pub use ffi::*;
 #[cfg(feature = "ffi")]
 pub use custom_bytebuffer::*;
-
-

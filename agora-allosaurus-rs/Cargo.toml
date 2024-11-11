@@ -35,6 +35,8 @@ digest = { version = "0.10", default-features = false }
 bincode = "1.3"
 arrayref = "0.3.6"
 postcard = { version = "1.0.10", features = ["use-std"] }
+gennaro-dkg = "1.0.0-rc1"
+rand_chacha = "0.3"
 
 [dev-dependencies]
 criterion = "0.5"
