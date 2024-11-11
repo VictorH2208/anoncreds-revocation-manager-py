@@ -14,7 +14,7 @@ To test the FFI functions in Python,
 2. Then can run the test function in the test.ipynb Jupyter Notebook
 
 ## Running locally
-To run the server locally, cd into `revocation-manager` and run
+To run the server locally, cd into `revocation-manager-py` and run
 * `uvicorn main:app --reload` 
 
 then go to http://127.0.0.1:8000/docs to see the entire swagger ui
@@ -27,3 +27,5 @@ To set up the Docker container for revocation manager:
 `docker build -t {container_name} .`
 3. run container with port specified
 `docker run -p 4000:80 {container_name}`
+
+then go to http://localhost:4000/docs for the swagger ui

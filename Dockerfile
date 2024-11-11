@@ -4,6 +4,7 @@ FROM python:3.12-slim
 WORKDIR /app
 
 # Copy pre-built library into the image
+# COPY /agora-allosaurus-rs/target/release/libagora_allosaurus_rs.so /usr/local/lib/
 COPY libagora_allosaurus_rs.so /usr/local/lib/
 
 # update the library cache
@@ -18,7 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-venv  # Ensure the venv module is installed
 
 # Copy the entire project into the container
-COPY . /app
+COPY .. /app
 
 # Create a virtual environment
 RUN python3 -m venv venv \
