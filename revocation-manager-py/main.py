@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 import importlib.util
 import base64
+import ctypes
 from .models import *
 # from models import *
 
@@ -26,7 +27,10 @@ def get_registry_state():
 
 @app.get("/server")
 def get_server():
-    return {"registry": f"{get_registry_state()}"}
+    # return {"registry": f"{get_registry_state()}"}
+    bytes_data = ctypes.string_at(ctypes.addressof(app.state.registry), ctypes.sizeof(app.state.registry))
+    encoded_data = base64.b64encode(bytes_data)
+    return encoded_data.decode('utf-8')
 
 @app.get("/new_user")
 def new_user():

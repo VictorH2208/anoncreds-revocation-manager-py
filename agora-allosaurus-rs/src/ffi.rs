@@ -1,4 +1,6 @@
 #![allow(unused_doc_comments, missing_docs)]
+use crate::accumulator::Coefficient;
+use crate::accumulator::Element;
 use crate::utils::*;
 use crate::custom_bytebuffer::*;
 use ffi_support::{
@@ -9,6 +11,7 @@ use blsful::inner_types::*;
 use lazy_static::lazy_static;
 use std::{ptr, slice, vec::Vec};
 use postcard;
+use crate::accumulator::witness::MembershipWitness;
 
 use super::{servers::Server, witness::*, user::*};
 
@@ -95,13 +98,12 @@ impl ByteArray {
     }
 
     /// Convert to a slice
-    pub fn to_fixed_array(&self) -> Option<[u8; 32]> {
-        if self.length == 32 && !self.data.is_null() {
-            // Safe because we've checked that data is not null and length is exactly 32
+pub fn to_fixed_array<const N: usize>(&self) -> Option<[u8; N]> {
+        if self.length == N && !self.data.is_null() {
             unsafe {
                 let slice = slice::from_raw_parts(self.data, self.length);
-                let array: [u8; 32] = slice.try_into().expect("Slice with correct length");
-                Some(array)
+                let array: Result<[u8; N], _> = slice.try_into();
+                array.ok()
             }
         } else {
             None
@@ -177,7 +179,7 @@ pub extern "C" fn allosaurus_server_update(
     let users: Vec<User> = user_bytes.iter().map(|user| postcard::from_bytes(&user.to_vec()).unwrap()).collect();
     let user_ids: Vec<Scalar> = users.iter().map(|user| {
         let user_id: UserID = user.get_id();
-        let crate::accumulator::Element(scalar) = user_id;
+        let Element(scalar) = user_id;
         scalar
     }).collect();
     // println!("user_ids: {:?}", user_ids);
@@ -382,6 +384,43 @@ pub extern "C" fn allosaurus_user_update(
         },
     }
 }
+
+#[no_mangle]
+pub extern "C" fn witness_multi_batch_update(
+    current_witness: ByteArray,
+    y_element: ByteArray,
+    d_list: *const ByteArray,
+    d_cnt: usize,
+    c_list: *const ByteArray,
+    c_cnt: usize,
+    witness_buffer: &mut ByteBuffer,
+) -> i32 {
+
+    let mut current_witness = postcard::from_bytes(&current_witness.to_vec()).unwrap();
+    let y_element = Element::from_bytes(y_element.to_fixed_array::<32>().unwrap()).unwrap();
+
+    let d_elements: Vec<Element> = unsafe { slice::from_raw_parts(d_list, d_cnt) }
+        .iter()
+        .map(|d| Element::from_bytes(d.to_fixed_array().unwrap()).unwrap())
+        .collect();
+
+    let c_coefficients: Vec<Coefficient> = unsafe { slice::from_raw_parts(c_list, c_cnt) }
+        .iter()
+        .map(|c| Coefficient::from_bytes(c.to_fixed_array().unwrap()).unwrap())
+        .collect();
+
+    let empty_a: Vec<Element> = Vec::new();
+    let deltas: Vec<(_, _, _)> = std::iter::repeat(empty_a.as_slice())  // Directly use as_slice() if empty_a is a Vec<Element>
+    .zip(d_elements.iter().map(|d| slice::from_ref(d)))  // from_ref already returns &[Element]
+    .zip(c_coefficients.iter().map(|c| slice::from_ref(c)))  // from_ref already returns &[Coefficient]
+    .map(|((a, d), c)| (a, d, c))
+    .collect();
+
+    let result= MembershipWitness::multi_batch_update(&mut current_witness, y_element, &deltas);
+    *witness_buffer = ByteBuffer::from_vec(postcard::to_stdvec(&result).unwrap());
+    0
+}
+
 
 
 #[cfg(test)]

@@ -112,6 +112,12 @@ impl Coefficient {
     pub fn to_bytes(&self) -> [u8; Self::BYTES] {
         self.0.to_compressed()
     }
+
+    /// Construct a coefficient from bytes
+    pub fn from_bytes(bytes: [u8; Self::BYTES]) -> Option<Self> {
+        let g = G1Projective::from_compressed(&bytes);
+        g.map(Self).into()
+    }
 }
 
 /// Represents a Universal Bilinear Accumulator.

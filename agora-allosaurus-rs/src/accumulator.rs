@@ -5,7 +5,7 @@ mod key;
 mod proof;
 mod proof_message;
 mod utils;
-mod witness;
+pub mod witness;
 
 pub use acc::*;
 pub use key::*;

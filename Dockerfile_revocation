@@ -19,7 +19,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-venv  # Ensure the venv module is installed
 
 # Copy the entire project into the container
-COPY .. /app
+COPY agora-allosaurus-py /app/agora-allosaurus-py
+COPY agora-allosaurus-rs /app/agora-allosaurus-rs
+COPY revocation-manager-py /app/revocation-manager-py
+COPY libagora_allosaurus_rs.so /app
+COPY requirements.txt /app
 
 # Create a virtual environment
 RUN python3 -m venv venv \

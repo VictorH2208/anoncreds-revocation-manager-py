@@ -21,11 +21,21 @@ then go to http://127.0.0.1:8000/docs to see the entire swagger ui
 
 ## Docker
 To set up the Docker container for revocation manager:
-1. Build Rust Library
+1. Build Rust Library\
 `cd agora-alloraurus-rs && cargo build --release`
-2. compile docker
+2. compile docker\
 `docker build -t {container_name} .`
-3. run container with port specified
+3. run container with port specified\
 `docker run -p 4000:80 {container_name}`
 
 then go to http://localhost:4000/docs for the swagger ui
+
+## Docker for network locally
+
+1. First create the network\
+`docker network create {my-network}`
+2. Build containers\
+`docker build -f {filename} -t {container_name} .`
+3. Lauch image on the network\
+`docker run -p 4000:80 --network my-network --name service4000 {container_name}`\
+`docker run -p 5000:80 --network my-network --name service5000 {container_name}`
