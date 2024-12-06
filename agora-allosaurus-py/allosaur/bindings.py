@@ -1,3 +1,4 @@
+import ctypes
 import pdb
 import os
 import sys
@@ -306,6 +307,33 @@ def user_update(servers, user, threshold) -> c_int64:
     err = FfiError()
     lib_fn = _get_func("allosaurus_user_update")
     lib_fn(servers, len(servers), _encode_bytes(user), threshold, byref(buffer), byref(err))
+    if err.code != 0:
+        message = string_at(err.message)
+        raise Exception(message)
+    buffer = _decode_bytes(buffer)
+    return buffer
+
+def witness_multi_batch_update(witness, y, deletions, coefficients) -> c_int64:
+    
+    def to_fixed_size_bytes(s, size):
+        encoded = s.encode('utf-8')
+        return encoded.ljust(size, b'\x00')[:size] 
+
+    bytes_deletions = b"".join([to_fixed_size_bytes(d, 32) for d in deletions])
+    bytes_coefficients = b"".join([to_fixed_size_bytes(c, 32) for c in coefficients])
+
+    deletion_ptr = ctypes.create_string_buffer(bytes_deletions)
+    deletion_len = len(bytes_deletions) // 32
+
+    coefficient_ptr = ctypes.create_string_buffer(bytes_coefficients)
+    coefficient_len = len(bytes_coefficients) // 32
+
+    buffer = FfiByteBuffer()
+    err = FfiError()
+
+    lib_fn = _get_func("witness_multi_batch_update")
+    lib_fn(witness, y, deletion_ptr, deletion_len, coefficient_ptr, coefficient_len, byref(buffer), byref(err))
+
     if err.code != 0:
         message = string_at(err.message)
         raise Exception(message)
