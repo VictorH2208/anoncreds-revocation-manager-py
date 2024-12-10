@@ -438,6 +438,12 @@ mod tests {
         assert_eq!(result, Ok(()));
     }
 
+    #[test]
+    fn test_hash() {
+        let ele = Element::hash(b"1");
+        print!("{:?}", ele);
+    }
+
 }
 
 // server holds the non revoked users

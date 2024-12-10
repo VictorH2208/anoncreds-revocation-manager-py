@@ -1,10 +1,11 @@
 from contextlib import asynccontextmanager
-import ctypes
+from hashlib import shake_128
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
+from datetime import datetime
 import importlib.util
 import asyncio
-from datetime import datetime
+import os
 import json
 import requests
 import base64
@@ -25,9 +26,12 @@ tmp_revocation_file = {
     "timestamp": 1630000000,
     "revoked":[
         {
-            "user_guid": "test_holder",
             "deletion": "element_delete",
             "coefficient": "element_coefficient"
+        },
+        {
+            "deletion": "element_delete2",
+            "coefficient": "element_coefficient2"
         }
     ]
 }
@@ -58,10 +62,6 @@ app = FastAPI(lifespan=app_lifespan)
 
 # function to get the all deltas from a file given given current witness and current timestamp?
 def allosaurus_multi_batch_update(user_id, witness, timestamp, reovcation_file_path):
-    
-    def to_fixed_size_bytes(s, size):
-        encoded = s.encode('utf-8')
-        return encoded.ljust(size, b'\x00')[:size] 
 
     revocation_json = get_revocation_file(reovcation_file_path)
     revocation_file = json.loads(revocation_json)
@@ -75,21 +75,23 @@ def allosaurus_multi_batch_update(user_id, witness, timestamp, reovcation_file_p
         return witness
     
     # if it is, update the witness
-
-    # if the user is in the revoked list, return None
-    all_revoked_guid = [r["user_guid"] for r in revoked_list]
-    if user_id in all_revoked_guid:
-        return None
-    
     all_deletions = [r["deletion"] for r in revoked_list]
     all_coefficients = [r["coefficient"] for r in revoked_list]
 
-    try:
-        new_witness = bindings.multi_batch_update(witness, all_deletions, all_coefficients)
-        encoded_witness = base64.b64encode(new_witness).decode('utf-8')
-        return {"witness": encoded_witness, "timestamp": datetime.now().timestamp()}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    # convert deletions to guid
+    # not working due to hashing issue
+    guids_list = [generate_hash(ikm=deletion.encode()) for deletion in all_deletions]
+
+    # if the user is in the revoked list, return None
+    if user_id in guids_list:
+        return None
+
+    # try:
+    #     new_witness = bindings.multi_batch_update(witness, all_deletions, all_coefficients)
+    #     encoded_witness = base64.b64encode(new_witness).decode('utf-8')
+    #     return {"witness": encoded_witness, "timestamp": datetime.now().timestamp()}
+    # except Exception as e:
+    #     raise HTTPException(status_code=400, detail=str(e))
 
 
 # function to retrieve the revocation file
@@ -100,6 +102,18 @@ def get_revocation_file(file_path):
         return response.json()
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+# function to generate a hash but not working seems. 
+def generate_hash(salt=b"VB-ACC-HASH-SALT-", ikm=None):  
+    shake = shake_128()
+    shake.update(salt)
+    if ikm is not None:
+        shake.update(ikm)
+    else:
+        # Handle no `ikm` case
+        random_bytes = os.urandom(32)
+        shake.update(random_bytes)
+    return shake.digest(64)
 
 
 @app.get("/")
@@ -126,12 +140,3 @@ def holder_witness_update(WitnessUpdateInput: WitnessUpdateInput):
         return JSONResponse(status_code=400, content={"message": "User has been revoked"})
 
     return witness_cache[user_guid]
-
-# 1. how does the witness server knows which revocation file to access?
-# the issuer has to provide it to the witness server 
-# what about multiple issuers? how does the witness server know which issuer to get the revocation file from?
-
-# 2. how does the witness server know which user to update the witness for?
-# the holder has to provide the user_guid to the witness server? How?
-
-# 3. What is y in the witness_update function? Who provides it?
