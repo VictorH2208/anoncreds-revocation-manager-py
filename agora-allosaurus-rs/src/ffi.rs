@@ -396,8 +396,8 @@ pub extern "C" fn witness_multi_batch_update(
     witness_buffer: &mut ByteBuffer,
 ) -> i32 {
 
-    let mut current_witness = postcard::from_bytes(&current_witness.to_vec()).unwrap();
-    let y_element = Element::from_bytes(y_element.to_fixed_array::<32>().unwrap()).unwrap();
+    let mut current_witness: MembershipWitness = postcard::from_bytes(&current_witness.to_vec()).unwrap();
+    let y_element: Element = postcard::from_bytes(&y_element.to_vec()).unwrap();
 
     let d_elements: Vec<Element> = unsafe { slice::from_raw_parts(d_list, d_cnt) }
         .iter()
@@ -425,6 +425,7 @@ pub extern "C" fn witness_multi_batch_update(
 
 #[cfg(test)]
 mod tests {
+    use crate::accumulator::{Accumulator, PublicKey, SecretKey};
     use super::*;
 
     #[test]
@@ -438,14 +439,63 @@ mod tests {
         assert_eq!(result, Ok(()));
     }
 
+    // Failing due to from_byte function of MembershipWitness
     #[test]
-    fn test_hash() {
-        let ele = Element::hash(b"1");
-        print!("{:?}", ele);
+    fn test_witness_multi_batch_update() {
+        let key = SecretKey::new(Some(b"1234567890"));
+        let pubkey = PublicKey::from(&key);
+        let elements = [
+            Element::hash(b"3"),
+            Element::hash(b"4"),
+            Element::hash(b"5"),
+            Element::hash(b"6"),
+            Element::hash(b"7"),
+            Element::hash(b"8"),
+            Element::hash(b"9"),
+        ];
+        let y = elements[3];
+        let mut acc = Accumulator::with_elements(&key, &elements);
+        let mut wit = MembershipWitness::new(y, acc, &key).unwrap();
+
+        assert!(wit.verify(y, pubkey, acc));
+
+        let data = vec![
+            Element::hash(b"1"),
+            Element::hash(b"2"),
+            Element::hash(b"3"),
+            Element::hash(b"4"),
+            Element::hash(b"5"),
+        ];
+        let additions = &data[0..2];
+        let deletions = &data[2..5];
+        let coefficients = acc.update_assign(&key, additions, deletions);
+
+        let current_witness = ByteArray::from(postcard::to_stdvec(&wit).unwrap());
+        let y_element = ByteArray::from(postcard::to_stdvec(&y).unwrap());
+        let mut d_byte_arrays = Vec::new();
+        for d in deletions {
+            d_byte_arrays.push(ByteArray::from(postcard::to_stdvec(d).unwrap()));
+        }
+        let mut c_byte_arrays = Vec::new();
+        for c in &coefficients {
+            c_byte_arrays.push(ByteArray::from(postcard::to_stdvec(c).unwrap()));
+        }
+
+        let mut witness_buffer = ByteBuffer::new_with_size(48);
+
+        let result = witness_multi_batch_update(
+            current_witness,
+            y_element,
+            d_byte_arrays.as_ptr() as *const ByteArray,
+            d_byte_arrays.len(),
+            c_byte_arrays.as_ptr() as *const ByteArray,
+            c_byte_arrays.len(),
+            &mut witness_buffer,
+        );
+        assert_eq!(result, 0);
+
+        let updated_witness = postcard::from_bytes::<MembershipWitness>(&witness_buffer.destroy_into_vec()).unwrap();
+        assert!(updated_witness.verify(y, pubkey, acc));
     }
 
 }
-
-// server holds the non revoked users
-// two user -> issuer, delete one -> issuer talks revocation manager, holder to revocation manager: update the witness of the other
-// verify user two has a valid witness -> verifier talks to revocation manager
