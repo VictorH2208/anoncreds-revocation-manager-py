@@ -121,7 +121,7 @@ def read_root():
     return {"Hello": "World"}
 
 
-# holder to periodically check the deltas from the file
+# holder to check the deltas from the file
 @app.post("/holder_witness_update")
 def holder_witness_update(WitnessUpdateInput: WitnessUpdateInput):
     user_guid = WitnessUpdateInput.user_guid
@@ -132,8 +132,8 @@ def holder_witness_update(WitnessUpdateInput: WitnessUpdateInput):
     if user_guid not in witness_cache:
         updated_witness = allosaurus_multi_batch_update(user_guid, current_witness, current_timestamp, revocation_file_path)
         witness_cache[user_guid] = {
-            "witness": updated_witness,
-            "timestamp": current_timestamp
+            "witness": updated_witness["witness"],
+            "timestamp": updated_witness["timestamp"]
         }
     
     if witness_cache[user_guid]["witness"] is None:

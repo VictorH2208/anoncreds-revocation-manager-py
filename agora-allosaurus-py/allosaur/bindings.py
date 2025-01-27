@@ -325,7 +325,7 @@ def witness_multi_batch_update(witness, y, deletions, coefficients) -> c_int64:
     deletion_ptr = ctypes.create_string_buffer(bytes_deletions)
     deletion_len = len(bytes_deletions) // 32
 
-    coefficient_ptr = ctypes.create_string_buffer(bytes_coefficients)
+    coefficient_ptr = ctypes.create_string_buffer(bytes_coefficients) # bytebuffer 
     coefficient_len = len(bytes_coefficients) // 32
 
     buffer = FfiByteBuffer()
