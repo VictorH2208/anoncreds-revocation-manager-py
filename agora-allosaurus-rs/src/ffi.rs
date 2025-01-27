@@ -9,7 +9,6 @@ use ffi_support::{
 };
 use blsful::inner_types::*;
 use lazy_static::lazy_static;
-use std::io::Cursor;
 use std::{ptr, slice, vec::Vec};
 use postcard;
 use crate::accumulator::witness::MembershipWitness;
@@ -399,29 +398,29 @@ pub extern "C" fn witness_multi_batch_update(
     // Deserialize the MembershipWitness 
     let mut current_witness: MembershipWitness = postcard::from_bytes(&current_witness.to_vec()).unwrap();
 
-    // // Deserialize y Element
-    // let y_element: Element = postcard::from_bytes(&y_element.to_vec()).unwrap();
+    // Deserialize y Element
+    let y_element: Element = postcard::from_bytes(&y_element.to_vec()).unwrap();
     
-    // // Deserialize d_list and c_list in loop and store them in a vector
-    // let d_elements: Vec<Element> = unsafe { slice::from_raw_parts(d_list, d_cnt) }
-    //     .iter()
-    //     .map(|d| Element::from_bytes(d.to_fixed_array().unwrap()).unwrap())
-    //     .collect();
+    // Deserialize d_list and c_list in loop and store them in a vector
+    let d_elements: Vec<Element> = unsafe { slice::from_raw_parts(d_list, d_cnt) }
+        .iter()
+        .map(|d| Element::from_bytes(d.to_fixed_array().unwrap()).unwrap())
+        .collect();
 
-    // let c_coefficients: Vec<Coefficient> = unsafe { slice::from_raw_parts(c_list, c_cnt) }
-    //     .iter()
-    //     .map(|c| Coefficient::from_bytes(c.to_fixed_array().unwrap()).unwrap())
-    //     .collect();
+    let c_coefficients: Vec<Coefficient> = unsafe { slice::from_raw_parts(c_list, c_cnt) }
+        .iter()
+        .map(|c| Coefficient::from_bytes(c.to_fixed_array().unwrap()).unwrap())
+        .collect();
 
-    // let empty_a: Vec<Element> = Vec::new();
-    // let deltas: Vec<(_, _, _)> = std::iter::repeat(empty_a.as_slice())  
-    // .zip(d_elements.iter().map(|d| slice::from_ref(d)))  
-    // .zip(c_coefficients.iter().map(|c| slice::from_ref(c)))  
-    // .map(|((a, d), c)| (a, d, c))
-    // .collect();
+    let empty_a: Vec<Element> = Vec::new();
+    let deltas: Vec<(_, _, _)> = std::iter::repeat(empty_a.as_slice())  
+    .zip(d_elements.iter().map(|d| slice::from_ref(d)))  
+    .zip(c_coefficients.iter().map(|c| slice::from_ref(c)))  
+    .map(|((a, d), c)| (a, d, c))
+    .collect();
 
-    // let result= MembershipWitness::multi_batch_update(&mut current_witness, y_element, &deltas);
-    // *witness_buffer = ByteBuffer::from_vec(postcard::to_stdvec(&result).unwrap());
+    let result= MembershipWitness::multi_batch_update(&mut current_witness, y_element, &deltas);
+    *witness_buffer = ByteBuffer::from_vec(postcard::to_stdvec(&result).unwrap());
     0
 }
 

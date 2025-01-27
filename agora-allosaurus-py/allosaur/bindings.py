@@ -322,17 +322,19 @@ def witness_multi_batch_update(witness, y, deletions, coefficients) -> c_int64:
     bytes_deletions = b"".join([to_fixed_size_bytes(d, 32) for d in deletions])
     bytes_coefficients = b"".join([to_fixed_size_bytes(c, 32) for c in coefficients])
 
-    deletion_ptr = ctypes.create_string_buffer(bytes_deletions)
+    delete_byte_buffer = (ctypes.c_uint8 * len(bytes_deletions))(*bytes_deletions)
+    delete_ptr = ctypes.cast(delete_byte_buffer, ctypes.POINTER(ctypes.c_uint8))
     deletion_len = len(bytes_deletions) // 32
 
-    coefficient_ptr = ctypes.create_string_buffer(bytes_coefficients) # bytebuffer 
+    coeff_byte_buffer = (ctypes.c_uint8 * len(bytes_coefficients))(*bytes_coefficients)
+    coefficient_ptr = ctypes.cast(coeff_byte_buffer, ctypes.POINTER(ctypes.c_uint8)) 
     coefficient_len = len(bytes_coefficients) // 32
 
     buffer = FfiByteBuffer()
     err = FfiError()
 
     lib_fn = _get_func("witness_multi_batch_update")
-    lib_fn(witness, y, deletion_ptr, deletion_len, coefficient_ptr, coefficient_len, byref(buffer), byref(err))
+    lib_fn(witness, y, delete_ptr, deletion_len, coefficient_ptr, coefficient_len, byref(buffer), byref(err))
 
     if err.code != 0:
         message = string_at(err.message)

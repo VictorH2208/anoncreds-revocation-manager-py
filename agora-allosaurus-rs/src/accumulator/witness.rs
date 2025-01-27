@@ -200,16 +200,7 @@ impl MembershipWitness {
         res
     }
 
-    /// Create a witness from a byte sequence
-    // pub fn from_bytes(bytes: [u8; Self::BYTES]) -> Result<Self, &'static str> {
-    //     let projective_ct_option = G1Projective::from_compressed(&bytes);
-    //     if projective_ct_option.is_some().into() {
-    //         Ok(Self(projective_ct_option.unwrap()))
-    //     } else {
-    //         Err("Failed to decompress G1Projective")
-    //     }
-    // }
-
+    // Create a witness from a byte sequence
     pub fn from_bytes(input: &[u8]) -> Result<Self, &'static str> {
         let mut array = [0u8; Self::BYTES];
         array.copy_from_slice(input);
