@@ -104,7 +104,9 @@ def get_revocation_file(file_path):
         raise HTTPException(status_code=400, detail=str(e))
 
 # function to generate a hash but not working seems. 
-def generate_hash(salt=b"VB-ACC-HASH-SALT-", ikm=None):  
+# q = 0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001
+def generate_hash(salt=b"VB-ACC-HASH-SALT-", ikm=None): 
+    q = 0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001 
     shake = shake_128()
     shake.update(salt)
     if ikm is not None:
@@ -113,7 +115,10 @@ def generate_hash(salt=b"VB-ACC-HASH-SALT-", ikm=None):
         # Handle no `ikm` case
         random_bytes = os.urandom(32)
         shake.update(random_bytes)
-    return shake.digest(64)
+    hash_bytes = shake.digest(64)
+    hash_int = int.from_bytes(hash_bytes, byteorder='big')
+    result = hash_int % q
+    return result
 
 
 @app.get("/")
