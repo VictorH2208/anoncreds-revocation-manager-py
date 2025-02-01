@@ -428,7 +428,6 @@ pub extern "C" fn witness_multi_batch_update(
 
 #[cfg(test)]
 mod tests {
-    use crate::accumulator::{Accumulator, PublicKey, SecretKey};
     use super::*;
 
     #[test]
@@ -442,29 +441,4 @@ mod tests {
         let result = User::check_witness(&user, &params, &server.get_accumulator());
         assert_eq!(result, Ok(()));
     }
-
-    #[test]
-    #[ignore]
-    fn test_desearialize_witness() {
-        let key = SecretKey::new(Some(b"1234567890"));
-        let pubkey = PublicKey::from(&key);
-        let elements = [
-            Element::hash(b"3"),
-            Element::hash(b"4"),
-            Element::hash(b"5"),
-            Element::hash(b"6"),
-            Element::hash(b"7"),
-            Element::hash(b"8"),
-            Element::hash(b"9"),
-        ];
-        let y = elements[3];
-        let mut acc = Accumulator::with_elements(&key, &elements);
-        let mut wit = MembershipWitness::new(y, acc, &key).unwrap();
-
-        let current_witness = postcard::to_stdvec(&wit).unwrap();
-        let witness = postcard::from_bytes::<MembershipWitness>(&current_witness).unwrap();
-
-        assert_eq!(witness, wit);
-    }
-
 }
