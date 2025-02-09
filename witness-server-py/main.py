@@ -10,10 +10,11 @@ import json
 import requests
 import base64
 
-from models import *
+from .models import *  # this line if you are running the code in docker
+# from models import * # this line if you are running the code locally
 
-# path = 'agora-allosaurus-py/allosaur/bindings.py' # line for docker file
-path = '../agora-allosaurus-py/allosaur/bindings.py'
+path = 'agora-allosaurus-py/allosaur/bindings.py' # this line for docker file
+path = '../agora-allosaurus-py/allosaur/bindings.py' # this line for local file
 
 spec = importlib.util.spec_from_file_location("bindings", path)
 bindings = importlib.util.module_from_spec(spec)
@@ -79,13 +80,13 @@ def allosaurus_multi_batch_update(user_id, witness, timestamp, reovcation_file_p
     all_coefficients = [r["coefficient"] for r in revoked_list]
 
     # convert deletions to guid
-    # not working due to hashing issue
     guids_list = [generate_hash(ikm=deletion.encode()) for deletion in all_deletions]
 
     # if the user is in the revoked list, return None
     if user_id in guids_list:
         return None
 
+    # Uncomment the following code to update the witness
     # try:
     #     new_witness = bindings.multi_batch_update(witness, all_deletions, all_coefficients)
     #     encoded_witness = base64.b64encode(new_witness).decode('utf-8')
@@ -103,7 +104,7 @@ def get_revocation_file(file_path):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-# function to generate a hash but not working seems. 
+# function to generate a hash same as Rust. 
 # q = 0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001
 def generate_hash(salt=b"VB-ACC-HASH-SALT-", ikm=None): 
     q = 0x73eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001 
@@ -112,17 +113,16 @@ def generate_hash(salt=b"VB-ACC-HASH-SALT-", ikm=None):
     if ikm is not None:
         shake.update(ikm)
     else:
-        # Handle no `ikm` case
         random_bytes = os.urandom(32)
         shake.update(random_bytes)
     hash_bytes = shake.digest(64)
-    hash_int = int.from_bytes(hash_bytes, byteorder='big')
-    result = hash_int % q
+    hash_int = int.from_bytes(hash_bytes, byteorder='little') % q
+    result = hex(hash_int)
     return result
 
 
 @app.get("/")
-def read_root():
+def hello_world():
     return {"Hello": "World"}
 
 

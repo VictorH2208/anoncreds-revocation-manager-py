@@ -30,6 +30,9 @@ To set up the Docker containers:
 `cd agora-alloraurus-rs && cargo build --release`
 2. Compile docker using the command below\
 `docker build -f {filename} -t {container_name} .`
+
+        Note: You may have to comment out certain lines in `revocation-manager-py/main.py` or `witness-server-py/main.py` prior to compiling docker containers.
+
 3. run container with port specified\
 `docker run -p 4000:80 {container_name}`
 
