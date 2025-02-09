@@ -81,7 +81,7 @@ def _load_library(lib_name: str) -> CDLL:
         lib_prefix = lib_prefix_mapping.get(os_name, "lib")
         lib_suffix = lib_suffix_mapping.get(os_name, ".so")
         lib_path = os.path.join(
-            os.path.dirname(os.getcwd()), f"{lib_prefix}{lib_name}{lib_suffix}"
+            os.path.dirname(os.getcwd()), f"agora-allosaurus-rs/target/release/{lib_prefix}{lib_name}{lib_suffix}"
         )
         return CDLL(lib_path)
     except KeyError:

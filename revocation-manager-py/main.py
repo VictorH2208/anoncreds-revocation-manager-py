@@ -3,11 +3,11 @@ from fastapi import FastAPI, HTTPException, Request
 import importlib.util
 import base64
 import ctypes
-from .models import *  # this line if you are running the code in docker
-# from models import * # this line if you are running the code locally
+# from .models import *  # this line if you are running the code in docker
+from models import * # this line if you are running the code locally
 
 path = 'agora-allosaurus-py/allosaur/bindings.py'  # this line for docker file
-# path = '../agora-allosaurus-py/allosaur/bindings.py' # this line for local file
+path = '../agora-allosaurus-py/allosaur/bindings.py' # this line for local file
 
 spec = importlib.util.spec_from_file_location("bindings", path)
 bindings = importlib.util.module_from_spec(spec)
