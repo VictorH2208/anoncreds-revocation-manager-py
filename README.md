@@ -22,6 +22,8 @@ To test the FFI functions in Python,
 To run the server locally, cd into the backend server that you want to run and run
 * `uvicorn main:app --reload` 
 
+        Note: You may have to comment out certain lines in `revocation-manager-py/main.py` or `witness-server-py/main.py` prior.
+
 then go to http://127.0.0.1:8000/docs to see the entire swagger ui
 
 ## Docker
